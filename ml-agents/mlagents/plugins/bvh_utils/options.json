@@ -1,0 +1,6 @@
+{"kernel_size"      : 5,      
+"channel_base"      : 4,       
+"num_layers"        : 2,       
+"num_neighbours"    : 2,       
+"window_size"       : 16,
+"drop_percentage"   : null}      

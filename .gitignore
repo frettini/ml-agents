@@ -95,3 +95,6 @@ coverage.xml
 /htmlcov/
 
 **/UserSettings/*
+
+# Motion capture data files
+ml-agents/mlagents/plugins/skeleton_aware_op/data/
