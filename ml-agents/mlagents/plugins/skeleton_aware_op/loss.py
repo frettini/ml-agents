@@ -29,15 +29,15 @@ def calc_ee_loss(real_vel, real_pos, fake_vel, fake_pos, criterion_ee, skdata_re
     Calculate the end effector loss using the fake velocity and position (local or global)
     """
     # [batch, frame, n_end_effector, 6]
-    ee_false = skdata_fake.ee_id
-    ee_real = skdata_real.ee_id
+    ee_false = skdata_fake.ee_id[skdata_fake.ee_id != 0]
+    ee_real = skdata_real.ee_id[skdata_real.ee_id != 0]
 
     # print(fake_pos[:,:,0:1,:].shape)
     fake_pos_loc = fake_pos - fake_pos[:,:,0:1,:]
     real_pos_loc = real_pos - real_pos[:,:,0:1,:]
 
-    fake_ee = torch.cat((fake_vel[:,:,ee_false[ee_false!=0],:], fake_pos_loc[:,:,ee_false[ee_false!=0],:]), dim=2)
-    real_ee = torch.cat((real_vel[:,:,ee_real[ee_real!=0],:], real_pos_loc[:,:,ee_real[ee_real!=0],:]), dim=2)
+    fake_ee = torch.cat((fake_vel[:,:,ee_false,:], fake_pos_loc[:,:,ee_false,:]), dim=2)
+    real_ee = torch.cat((real_vel[:,:,ee_real,:], real_pos_loc[:,:,ee_real,:]), dim=2)
 
     real_length = skdata_real.ee_length.reshape(1,1,skdata_real.ee_length.shape[0],1)
     fake_length = skdata_fake.ee_length.reshape(1,1,skdata_fake.ee_length.shape[0],1)
@@ -46,8 +46,8 @@ def calc_ee_loss(real_vel, real_pos, fake_vel, fake_pos, criterion_ee, skdata_re
     real_length = torch.repeat_interleave(real_length,2, dim=2)
     fake_length = torch.repeat_interleave(fake_length,2, dim=2)
 
+
     # loss_ee_velo = criterion_ee(fake_joint_vel[:,:,ee_id,:], real_joint_vel[:,:,ee_id,:])
     loss_ee_velo = criterion_ee(fake_ee/fake_length, real_ee/real_length)
-    # loss_ee_velo /= len(skdata_real.ee_id)
 
     return loss_ee_velo

@@ -30,7 +30,7 @@ def skeleton_plot(points, edges, color, limits=None, save_filename = None):
 
         # print(x,y,z)
         # ax.plot(x,y,z)
-    lc = art3d.Line3DCollection(lines, linewidths=2)
+    lc = art3d.Line3DCollection(lines, linewidths=2, color=color)
     ax.add_collection(lc)
 
     if limits is not None:

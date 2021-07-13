@@ -74,7 +74,7 @@ def quat_inv(q):
     :param q: quaternion tensor
     :return: tensor of inverted quaternions
     """
-    res = np.asarray([1, -1, -1, -1], dtype=np.float32) * q
+    res = torch.tensor([1, -1, -1, -1]).float() * q
     return res
 
 
@@ -412,7 +412,7 @@ def build_chain_list(edges):
             seq = [j.item()]
 
         if degree[j] == 1:
-            print(j)
+            # print(j)
             seq.append(j.item())
 
             chain_indices.append(seq)

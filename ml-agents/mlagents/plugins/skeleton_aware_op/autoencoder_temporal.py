@@ -150,20 +150,6 @@ class Decoder(torch.nn.Module):
 
         return input
 
-
-class AE(torch.nn.Module):
-    def __init__(self, topology):
-        super(AE, self).__init__()
-        self.enc = Encoder(topology)
-        self.dec = Decoder(self.enc)
-
-    def forward(self, input, offset=None):
-
-        latent = self.enc(input, offset)
-        result = self.dec(latent, offset)
-        return latent, result
-
-
 # eoncoder for static part, i.e. offset part
 class StaticEncoder(torch.nn.Module):
     def __init__(self, edges):
@@ -200,3 +186,49 @@ class StaticEncoder(torch.nn.Module):
             input = layer(input)
             output.append(input.squeeze(-1))
         return output
+
+
+class AE(torch.nn.Module):
+    def __init__(self, topology):
+        super(AE, self).__init__()
+        self.enc = Encoder(topology)
+        self.dec = Decoder(self.enc)
+
+    def forward(self, input, offset=None):
+
+        latent = self.enc(input, offset)
+        result = self.dec(latent, offset)
+        return latent, result
+
+class CrossStructuralAE(torch.nn.Module):
+
+    def __init__(self, skdata_data, skdata_sim):
+        """
+        AutoEncoder with different input and output structures
+        """
+
+        super(CrossStructuralAE, self).__init__()
+        
+        self.device = default_device()
+        self.options = get_options()
+
+        self.encoder_sim = Encoder(skdata_sim.edges)
+        # use the initialization of encoder_data to get the correct pooling lists
+        # its forward is not used
+        encoder_data = Encoder(skdata_data.edges) 
+        self.decoder_data = Decoder(encoder_data)
+
+        self.static_encoder_sim = StaticEncoder(skdata_sim.edges).to(self.device)
+        self.static_encoder_data = StaticEncoder(skdata_data.edges).to(self.device)
+
+    def forward(self, input_motion, offset_data, offset_sim):
+
+        # first get the offsets from the static encoder 
+        # deep_offsets = static_encoder(torch.tensor(anim.offsets[np.newaxis, :,:]).float())
+        deep_offsets_sim = self.static_encoder_sim(self.skdata_sim.offsets.reshape(1, self.skdata_sim.offsets.shape[0], -1))
+        deep_offsets_data = self.static_encoder_data(self.skdata_data.offsets.reshape(1, self.skdata_data.offsets.shape[0], -1))
+
+        latent = self.encoder_sim(input_motion, deep_offsets_sim)
+        res = self.decoder_data(latent, deep_offsets_data)
+
+        return latent, res
