@@ -345,6 +345,22 @@ def get_batch_velo(real_pos, fake_pos, frametime):
 
     return real_joint_vel, fake_joint_vel
 
+def get_batch_velo2(input_pos, frametime):
+    """
+    return a tensor same size that the input with the velocity
+    :params input_pos: [batch_size, window_size, [positions]] tensor of real position
+    :params frametime: float time elapsed between two frames
+    :return input_joint_vel: real velocity of same size as real_pose
+    """
+    
+    # get the velocity at every joint
+    input_joint_vel = torch.zeros_like(input_pos)
+
+    for ind in range(input_pos.shape[0]):
+        input_joint_vel[ind] = get_velocity(input_pos[ind], frametime)
+
+    return input_joint_vel
+
 def get_global_position_from_velocity(init_position, velocity, frametime, positions = None):
     """
     Get the global position from velocity and initial position. Another set of positions 
@@ -453,3 +469,33 @@ def get_height(parents, offsets):
     dfs(0, torch.tensor([0, 0, 0]))
 
     return high - low
+
+def get_pos_info_from_raw(input_data : torch.Tensor, skdata, offsets, options, norm_rot=False):
+    """
+    input data -> [batch_size, (rotations+glob_pos+1), window_size] \n
+    return - global position, local position, global rotation, global velocity, local velocity
+    """ 
+    curr_batch_size = input_data.shape[0]
+
+    # transform res shape from [batch_size, (rotations+glob_pos+1), window_size]
+    # to [batch_size, window_size, n_joints,4]
+    input_data = input_data.permute(0,2,1).reshape(curr_batch_size, options['window_size'], -1, options['channel_base'])
+
+    # extract rotation and velocity from raw
+    rotation = input_data[:,:,:-1,:]
+    velocity_global  = input_data[:,:,-1:,:-1]
+
+    if norm_rot is True:
+        # the current output rotation is not necessarily a normalized quaternion
+        rotation = torch.nn.functional.normalize(rotation, dim=3)
+
+    rotation_global = rotation[:,:,0,:].reshape(curr_batch_size, options['window_size'], -1)
+    rotation_local = torch.clone(rotation)
+    rotation_local[:,:,0,:] = torch.tensor([1,0,0,0]).float()
+    
+    # extract position information
+    _, position_global = quat_fk(rotation, offsets, skdata.parents)
+    _, position_local = quat_fk(rotation_local, offsets, skdata.parents)
+    velocity_local = get_batch_velo2(position_local, skdata.frametime)
+
+    return position_global, position_local, rotation_global, velocity_global, velocity_local
