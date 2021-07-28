@@ -97,6 +97,53 @@ def two_skeleton_plot(points_sk1, points_sk2, edges_sk1, edges_sk2, color1, colo
 
     plt.show()
 
+def skeletons_plot(points_list, edges_list, colors_list, limits=None, save_filename = None, return_plot=False):
+    """
+    Plots a graph of point in 3D. 
+    This function can plot as many skeleton as needed by having points, edges, and
+    colors in lists.
+    
+    :params points: list of 2D array ([num_joints, 3]) of position of each joint
+    :params edges: list of 2D array ([num_joints-1, 2]) of indices of connected joints
+    :params colors: list of character that specify the color of each skeleton
+    :params limits: 2D list/array ([3,2]) of axis limits 
+    """
+
+    fig = plt.figure()
+    ax = fig.add_subplot(projection='3d')
+
+    for points, edges, color in zip(points_list, edges_list, colors_list):
+
+        ax.scatter(points[:,0],points[:,1],points[:,2] ,c=color, marker='o')
+
+        lines = np.zeros((len(edges), 2, 3))
+
+        for i, e in enumerate(edges):
+            point1 = points[e[0],:]
+            point2 = points[e[1],:]
+            lines[i,0,:] = point1
+            lines[i,1,:] = point2
+
+        lc = art3d.Line3DCollection(lines, linewidths=2, color=color)
+        ax.add_collection(lc)
+
+    if limits is not None:
+        ax.set_xlim(limits[0][0],limits[0][1])
+        ax.set_ylim(limits[1][0],limits[1][1])
+        ax.set_zlim(limits[2][0],limits[2][1])
+
+    ax.set_xlabel('X Label')
+    ax.set_ylabel('Y Label')
+    ax.set_zlabel('Z Label')
+
+    if save_filename is not None :
+        plt.savefig(save_filename, bbox_inches="tight",transparent=False)
+
+    if return_plot is True:
+        return fig, ax
+    else:
+        plt.show()
+
 
 def motion_animation(motion_pos1, motion_pos2, edges1, edges2, limits=None):
 

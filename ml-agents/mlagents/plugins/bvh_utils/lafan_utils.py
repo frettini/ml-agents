@@ -9,7 +9,7 @@ def length(x, axis=-1, keepdims=True):
     :param keepdims: indicates if the dimension(s) on axis should be kept
     :return: The length or vector of lengths.
     """
-    lgth = np.sqrt(np.sum(x * x, axis=axis, keepdims=keepdims))
+    lgth = torch.sqrt(torch.sum(x * x, dim=axis, keepdims=keepdims))
     return lgth
 
 
@@ -104,16 +104,16 @@ def quat_ik(grot, gpos, parents):
     :return: tuple of tensors of local quaternion, local positions
     """
     res = [
-        np.concatenate([
+        torch.cat([
             grot[..., :1, :],
             quat_mul(quat_inv(grot[..., parents[1:], :]), grot[..., 1:, :]),
-        ], axis=-2),
-        np.concatenate([
+        ], dim=-2),
+        torch.cat([
             gpos[..., :1, :],
             quat_mul_vec(
                 quat_inv(grot[..., parents[1:], :]),
                 gpos[..., 1:, :] - gpos[..., parents[1:], :]),
-        ], axis=-2)
+        ], dim=-2)
     ]
 
     return res
@@ -145,8 +145,8 @@ def quat_mul_vec(q, x):
     :param x: tensor of vectors of shape (..., Nb of joints, 3)
     :return: the resulting array of rotated vectors
     """
-    t = 2.0 * torch.cross(q[..., 1:].float(), x)
-    res = x + q[..., 0][..., np.newaxis] * t + torch.cross(q[..., 1:].float(), t)
+    t = 2.0 * torch.cross(q[..., 1:].float(), x, dim=-1)
+    res = x + q[..., 0][..., np.newaxis] * t + torch.cross(q[..., 1:].float(), t, dim=-1)
 
     return res
 
@@ -190,10 +190,11 @@ def quat_between(x, y):
     :param y: tensor of 3D vetcors
     :return: tensor of quaternions
     """
-    res = np.concatenate([
-        np.sqrt(np.sum(x * x, axis=-1) * np.sum(y * y, axis=-1))[..., np.newaxis] +
-        np.sum(x * y, axis=-1)[..., np.newaxis],
-        np.cross(x, y)], axis=-1)
+    res = torch.cat([
+        torch.sqrt(torch.sum(x * x, dim=-1) * torch.sum(y * y, dim=-1))[..., np.newaxis] +
+        torch.sum(x * y, dim=-1)[..., np.newaxis],
+        # torch.sqrt((length(x)**2) * (length(y)**2)) + torch.sum(x * y, dim=-1)[..., np.newaxis],
+        torch.cross(x, y, dim=-1)], dim=-1)
     return res
 
 
@@ -470,16 +471,30 @@ def get_height(parents, offsets):
 
     return high - low
 
-def get_pos_info_from_raw(input_data : torch.Tensor, skdata, offsets, options, norm_rot=False):
+def get_pos_info_from_raw(input_data : torch.Tensor, skdata, offsets, options, norm_rot=False, rotation_offset=None):
     """
-    input data -> [batch_size, (rotations+glob_pos+1), window_size] \n
-    return - global position, local position, global rotation, global velocity, local velocity
+    :params input data: [batch_size, (rotations+glob_pos+1), window_size] \n
+    :params skdata: SkeletonInfo object containing edge, and more information about skeleton 
+    :params options: dictionary with options
+    :params offsets: 2D tensor [num_joints, 3] containing the initial offsets of the skeleton 
+    :params norm_rot: boolean, wether to nromalize the rotations extracted from the input_data (e.g. output of decoder)
+    :rotation_offset: add a rotation offset to the local space to fit the correct rotation (1D tensor)
+
+    return - 
+    :return global_position:
+    :return local_position:
+    :return global_rotation:
+    :return global_velocity:
+    :return local_velocity:
     """ 
     curr_batch_size = input_data.shape[0]
 
     # transform res shape from [batch_size, (rotations+glob_pos+1), window_size]
     # to [batch_size, window_size, n_joints,4]
     input_data = input_data.permute(0,2,1).reshape(curr_batch_size, options['window_size'], -1, options['channel_base'])
+    # and offsets to [batch_size, window_size, n_joints, 3]
+    offsets = offsets.reshape(1, 1, skdata.offsets.shape[0], skdata.offsets.shape[1])
+    offsets = offsets.repeat(curr_batch_size, options['window_size'], 1, 1)
 
     # extract rotation and velocity from raw
     rotation = input_data[:,:,:-1,:]
@@ -493,9 +508,16 @@ def get_pos_info_from_raw(input_data : torch.Tensor, skdata, offsets, options, n
     rotation_local = torch.clone(rotation)
     rotation_local[:,:,0,:] = torch.tensor([1,0,0,0]).float()
     
+    if rotation_offset is not None:
+        rotation_offset = rotation_offset.reshape(1,1,4)
+        rotation_offset = rotation_offset.repeat(rotation_local.shape[0],rotation_local.shape[1],1)
+        print(rotation_offset.shape)
+        print(rotation_local[:,:,0,:].shape)
+        rotation_local[:,:,0,:] = utils.quat_mul(rotation_offset.float(), rotation_local[:,:,0,:])
+
     # extract position information
-    _, position_global = quat_fk(rotation, offsets, skdata.parents)
-    _, position_local = quat_fk(rotation_local, offsets, skdata.parents)
-    velocity_local = get_batch_velo2(position_local, skdata.frametime)
+    _, position_global = utils.quat_fk(rotation, offsets, skdata.parents)
+    _, position_local = utils.quat_fk(rotation_local, offsets, skdata.parents)
+    velocity_local = utils.get_batch_velo2(position_local, skdata.frametime)
 
     return position_global, position_local, rotation_global, velocity_global, velocity_local

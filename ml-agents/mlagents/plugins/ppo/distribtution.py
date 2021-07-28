@@ -25,8 +25,11 @@ class GaussianDistInstance:
         # )
         
         ivar = torch.diag(1/(torch.diag(self.std)**2 + EPSILON))
+        torch.log(1/torch.det(((self.std.double())**2 + EPSILON)))
         temp1 = 0.5 * self.std.shape[0] *  math.log(2*math.pi)
-        temp2 = 0.5 * torch.log(1/torch.det(ivar))
+        # temp2 = 0.5 * torch.log(1/torch.det(ivar.double())).float()
+        # temp2 = 0.5 * torch.log(torch.det((self.std.double()**2 + EPSILON))).float()
+        temp2 = 0.5 * torch.sum(torch.log(torch.diag(self.std)**2 + EPSILON))
         temp3 = 0.5 * torch.sum(((value - self.mean) @ (ivar)) * (value - self.mean), dim=1)
 
         return (-temp1 - temp2 - temp3)

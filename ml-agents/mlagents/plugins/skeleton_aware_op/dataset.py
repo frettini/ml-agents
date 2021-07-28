@@ -142,7 +142,7 @@ class TemporalMotionData(torch.utils.data.Dataset):
 
     def __init__(self, input_path:str, recalculate_mean_var:bool = False,
                  normalize_data:bool = False, subsample=False, xyz='xyz',
-                 device:str='cpu'):
+                 rot_order = 'xyz', device:str='cpu'):
         
         options = get_options()
         self.window_size = options['window_size']
@@ -164,7 +164,7 @@ class TemporalMotionData(torch.utils.data.Dataset):
         for i, file in enumerate(input_files):
 
             full_path = os.path.join(input_path, file)
-            anim, names, frametime = BVH.load(full_path, need_quater = True)
+            anim, names, frametime = BVH.load(full_path, need_quater = True, order=rot_order)
             
             # anim rotation shape : [motion_lenght, num_joints, 3]
             # anim position shape : [motion_lenght, num_joints, 3]

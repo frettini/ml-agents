@@ -2,16 +2,23 @@ import numpy as np
 import random
 
 from mlagents.torch_utils import torch, default_device
+from mlagents_envs.environment import ActionTuple
+
 from mlagents.plugins.ppo.distribtution import GaussianDistInstance, CategoricalDistInstance
 from mlagents.plugins.ppo.network import MLPNet
 from mlagents.plugins.ppo.buffer import RolloutBuffer
-from mlagents_envs.environment import ActionTuple
+from mlagents.plugins.ppo.running_mean import RunningMeanStd
 
 import mlagents.plugins.utils.logger as log
 
+# dictionary of various activation function that are specified in the options
+activation_dict = {"tanh":torch.nn.Tanh(), "sigmoid":torch.nn.Sigmoid(),
+                   "relu":torch.nn.ReLU(), "leakyrelu":torch.nn.LeakyReLU(),
+                   "identity":torch.nn.Identity(), "softmax":torch.nn.Softmax()}
+
 
 class ActorCritic(torch.nn.Module):
-    def __init__(self, behavior_specs, has_continuous_action_space, action_std_init):
+    def __init__(self, behavior_specs, options, running_mean_std=None):
         
         """
         Actor Critic module
@@ -26,29 +33,48 @@ class ActorCritic(torch.nn.Module):
 
         super(ActorCritic, self).__init__()
 
-        self.has_continuous_action_space = has_continuous_action_space
+        self.options = options
+        self.has_continuous_action_space = options["continuous_space"]
 
         behavior_name = list(behavior_specs)[0]
         self.behavior_spec = behavior_specs[behavior_name]
         self.action_spec = behavior_specs[behavior_name].action_spec
 
         state_dim = self.behavior_spec.observation_specs[0].shape[0]
-        action_dim = len(self.action_spec)
+        action_dim = self.action_spec.continuous_size
 
         self.device = default_device()
-        print(self.device)
-        if has_continuous_action_space:
+
+        if self.has_continuous_action_space:
             self.action_dim = action_dim
-            self.action_var = torch.full((action_dim,), action_std_init * action_std_init).to(self.device)
+            self.action_var = torch.full((action_dim,), options["action_std"]**2 ).to(self.device)
 
-        # actor
-        if has_continuous_action_space :
-
-            self.actor = MLPNet(state_dim, action_dim)
+        # setup the actor which will process the observations and output a distribution
+        if self.has_continuous_action_space :
+            self.actor = MLPNet(state_dim, action_dim,
+                                hidden_dim = options["hidden_units_actor"],
+                                num_layers = options["num_layers_actor"],
+                                mid_activation=activation_dict[options["mid_activation_actor"]],
+                                last_activation=activation_dict[options["last_activation_actor"]]
+                                )
         else:
-            self.actor = MLPNet(state_dim, action_dim,last_activation = torch.nn.Softmax(dim=-1))
+            self.actor = MLPNet(state_dim, action_dim, 
+                                hidden_dim = options["hidden_units_actor"], 
+                                num_layers = options["num_layers_actor"],
+                                mid_activation=activation_dict[options["mid_activation_actor"]],
+                                last_activation=activation_dict[options["last_activation_actor"]])
 
-        self.critic = MLPNet(state_dim,1,last_activation=torch.nn.Identity())
+        # setup the critic which takes the observations and outputs the Value
+        self.critic = MLPNet( state_dim, 1, hidden_dim = options["hidden_units_critic"], 
+                              num_layers = options["num_layers_critic"], 
+                              mid_activation=activation_dict[options["last_activation_critic"]],
+                              last_activation=activation_dict[options["last_activation_critic"]])
+
+        if options["normalize"] is True:
+            if running_mean_std is None:
+                self.running_mean_std = RunningMeanStd(shape=state_dim)
+            else:
+                self.running_mean_std = running_mean_std
 
         # ML Agent naming conventions for importing into Unity
         # ------------------------------------------------------------------------------------------
@@ -109,7 +135,15 @@ class ActorCritic(torch.nn.Module):
         Sample an action from an observation. 
         Generate a distribution using the output of actor as mean, and self.action_var has variance
         :params state: observations passed to the actor to generate the distribution and thus action
+        :params update_norm: bool used to determine if the running mean is to be updated
+        :returns action: [batch_size, action_dim] tensor of actions sampled from distribution
+        :returns action_logprob: [batch_size]
         """
+
+        if self.options["normalize"] is True:
+            self.running_mean_std.update(state)
+            state = (state - self.running_mean_std.mean)/self.running_mean_std.var
+
         if self.has_continuous_action_space:
             action_mean = self.actor(state)
             cov_mat = torch.diag(self.action_var)#.unsqueeze(dim=0)
@@ -137,6 +171,10 @@ class ActorCritic(torch.nn.Module):
         :returns state_values: values at given states
         :returns dist_entropy: returns the entroyp of the distribution
         """
+
+        if self.options["normalize"] is True:
+            state = (state - self.running_mean_std.mean)/self.running_mean_std.var
+
         if self.has_continuous_action_space:
             action_mean = self.actor(state)
             
@@ -163,19 +201,14 @@ class ActorCritic(torch.nn.Module):
 
 
 class PPO:
-    def __init__(self, options, behaviour_spec):
+    def __init__(self, behaviour_spec, options):
         """
         Proximal Policy Optimization class 
+        Gathers Trajectories, and updates the PPO optimizer. (Might consider a new structure).
+        The Class uses many options that can be found in the options.json file
         
-        :params state_dim:
-        :params action_dim:
-        :params lr_actor:
-        :params lr_critic:
-        :params gamma:
-        :params K_epochs:
-        :params eps_clip:
-        :params has_continuous_action_space:
-        :params action_std_init:
+        :params behaviour_spec: information about the environment it lies in
+        :params options: dictionary holding parameters about the optimizer and policy
         """
 
         self.options = options
@@ -186,10 +219,15 @@ class PPO:
             self.action_std = options["action_std"]
 
         self.gamma = options["gamma"]
+        self.lmbda = options["lambda"]
         self.eps_clip = options["eps_clip"]
         self.K_epochs = options["K_epochs"]
         
-        self.policy = ActorCritic(behaviour_spec, self.has_continuous_action_space, options["action_std"]).to(self.device)
+        behaviour_name = list(behaviour_spec)[0]
+        # Initialize a running mean std that will be shared between the actorcritics
+        running_mean_std = RunningMeanStd(shape=behaviour_spec[behaviour_name].observation_specs[0].shape[0])
+
+        self.policy = ActorCritic(behaviour_spec, options, running_mean_std=running_mean_std).to(self.device)
         self.optimizer = torch.optim.Adam([
                         {'params': self.policy.actor.parameters(), 'lr': options["lr_actor"]},
                         {'params': self.policy.critic.parameters(), 'lr': options["lr_critic"]}
@@ -197,7 +235,7 @@ class PPO:
         self.scheduler = torch.optim.lr_scheduler.StepLR(self.optimizer, step_size=1, gamma=options["scheduler_gamma"])
             
         # keep track of the previous policy to generate the ratio
-        self.policy_old = ActorCritic(behaviour_spec, self.has_continuous_action_space, options["action_std"]).to(self.device)
+        self.policy_old = ActorCritic(behaviour_spec, options, running_mean_std=running_mean_std).to(self.device)
         self.policy_old.load_state_dict(self.policy.state_dict())
         
         # dictionary of buffers which maps an agent to a trajectory
@@ -353,61 +391,6 @@ class PPO:
             self.buffer.extend(self.agent_buffers[key])
             self.agent_buffers[key].clear()
 
-    def update(self):
-        """
-        Update the policy using clipped gradient policy
-        """
-        # Monte Carlo estimate of returns
-        # Rewards to go calculation
-        rewards = []
-        discounted_reward = 0
-        for reward, is_terminal in zip(reversed(buffer.rewards), reversed(buffer.is_terminals)):
-            if is_terminal:
-                discounted_reward = 0
-            discounted_reward = reward + (self.gamma * discounted_reward)
-            rewards.insert(0, discounted_reward)
-            
-        # Normalizing the rewards
-        rewards = torch.tensor(rewards, dtype=torch.float32).to(self.device)
-        rewards = (rewards - rewards.mean()) / (rewards.std() + 1e-7)
-
-        # convert list to tensor
-        old_states = torch.squeeze(torch.stack(buffer.states, dim=0)).detach().to(self.device)
-        old_actions = torch.squeeze(torch.stack(buffer.actions, dim=0)).detach().to(self.device)
-        old_logprobs = torch.squeeze(torch.stack(buffer.logprobs, dim=0)).detach().to(self.device)
-
-        
-        # Optimize policy for K epochs
-        for _ in range(self.K_epochs):
-
-            # Evaluating old actions and values
-            logprobs, state_values, dist_entropy = self.policy.evaluate(old_states, old_actions)
-
-            # match state_values tensor dimensions with rewards tensor
-            state_values = torch.squeeze(state_values)
-            
-            # Finding the ratio (pi_theta / pi_theta__old)
-            ratios = torch.exp(logprobs - old_logprobs.detach())
-
-            # Finding Surrogate Loss
-            advantages = rewards - state_values.detach()   
-            surr1 = ratios * advantages
-            surr2 = torch.clamp(ratios, 1-self.eps_clip, 1+self.eps_clip) * advantages
-
-            # final loss of clipped objective PPO
-            loss = -torch.min(surr1, surr2) + 0.5*self.MseLoss(state_values, rewards) - 0.01*dist_entropy
-            
-            # take gradient step
-            self.optimizer.zero_grad()
-            loss.mean().backward()
-            self.optimizer.step()
-            
-        # Copy new weights into old policy
-        self.policy_old.load_state_dict(self.policy.state_dict())
-
-        # clear buffer
-        buffer.clear()
-
     def batch_update(self):
 
         buffer_length = len(self.buffer)
@@ -424,21 +407,7 @@ class PPO:
             for ind in batch_indices:
 
                 batch_buffer = self.buffer[batch_indices[ind]*self.options["batch_size"] : (batch_indices[ind]+1)*self.options["batch_size"]]
-            
-                # Monte Carlo estimate of returns
-                # Rewards to go calculation
-                rewards = []
-                discounted_reward = 0
-                for reward, is_terminal in zip(reversed(batch_buffer.rewards), reversed(batch_buffer.is_terminals)):
-                    if is_terminal:
-                        discounted_reward = 0
-                    discounted_reward = reward + (self.gamma * discounted_reward)
-                    rewards.insert(0, discounted_reward)
-                    
-                # Normalizing the rewards
-                rewards = torch.tensor(rewards, dtype=torch.float32).to(self.device)
-                rewards = (rewards - rewards.mean()) / (rewards.std() + 1e-7)
-
+                
                 # convert list to tensor
                 old_states = torch.squeeze(torch.stack(batch_buffer.states, dim=0)).detach().to(self.device)
                 old_actions = torch.squeeze(torch.stack(batch_buffer.actions, dim=0)).detach().to(self.device)
@@ -450,16 +419,23 @@ class PPO:
                 # match state_values tensor dimensions with rewards tensor
                 state_values = torch.squeeze(state_values)
                 
+                if self.options["advantage"] == "montecarlo":
+                    advantages, returns = self.montecarlo_return(state_values, batch_buffer)
+                elif self.options["advantage"] == "gae":
+                    advantages, returns = self.GAE_Return(state_values, batch_buffer)
+                else:
+                    raise Exception('[PPO] Advantage method not implemented')
+
                 # Finding the ratio (pi_theta / pi_theta__old)
                 ratios = torch.exp(logprobs - old_logprobs.detach())
 
                 # Finding Surrogate Loss
-                advantages = rewards - state_values.detach()   
+                 
                 surr1 = ratios * advantages
                 surr2 = torch.clamp(ratios, 1-self.eps_clip, 1+self.eps_clip) * advantages
 
                 # final loss of clipped objective PPO
-                loss = -torch.min(surr1, surr2) + 0.5*self.MseLoss(state_values, rewards) - 0.01*dist_entropy
+                loss = -torch.min(surr1, surr2) + 0.5*self.MseLoss(state_values, returns) - 0.01*dist_entropy
 
                 # take gradient step
                 self.optimizer.zero_grad()
@@ -469,7 +445,7 @@ class PPO:
                 cumul_values +=  torch.mean(state_values).item()
                 cumul_entropy += torch.mean(dist_entropy).item()
                 cumul_loss_policy += torch.mean(torch.min(surr1, surr2)).item()
-                cumul_loss_value += 0.5*self.MseLoss(state_values, rewards).item()
+                cumul_loss_value += 0.5*self.MseLoss(state_values, returns).item()
 
         # Log Information
         N = len(batch_indices*self.K_epochs)
@@ -487,6 +463,48 @@ class PPO:
         # clear buffer
         self.buffer.clear()
         self.scheduler.step()
+
+    def GAE_Return(self, state_values, batch_buffer:RolloutBuffer):
+
+        returns = []
+        gae = 0
+
+        # Is_terminals indicates wether an episode is finished or not
+        # inverting yields a mask
+        masks = [not term for term in batch_buffer.is_terminals]
+        values = torch.zeros((state_values.shape[0]+1))
+        values[:state_values.shape[0]] = state_values
+
+        for i in reversed(range(len(batch_buffer.rewards))):
+            
+            delta = batch_buffer.rewards[i] + self.gamma * values[i + 1] * masks[i] - values[i]
+            gae = delta + self.gamma * self.lmbda * masks[i] * gae
+            returns.insert(0, (gae + values[i]))
+
+        returns = torch.tensor(returns).float()
+        adv = torch.tensor(returns, dtype=torch.float32) - values[:-1]
+        adv = adv - adv.mean() / (adv.std() + 1e-7)
+        return adv, returns
+
+    def montecarlo_return(self, state_values, batch_buffer):
+        """
+        Calculate return using MonteCarlo Method
+        """
+        rewards = []
+        discounted_reward = 0
+        # reverse method
+        for reward, is_terminal in zip(reversed(batch_buffer.rewards), reversed(batch_buffer.is_terminals)):
+            if is_terminal:
+                discounted_reward = 0
+            discounted_reward = reward + (self.gamma * discounted_reward)
+            rewards.insert(0, discounted_reward)
+
+        # Normalizing the rewards
+        rewards = torch.tensor(rewards, dtype=torch.float32).to(self.device)
+        rewards = (rewards - rewards.mean()) / (rewards.std() + 1e-7)
+
+        advantages = rewards - state_values.detach()  
+        return advantages, rewards
 
     def save(self, checkpoint_path):
         torch.save(self.policy_old.state_dict(), checkpoint_path)

@@ -1,4 +1,5 @@
 import json
+import os
 
 options = {'kernel_size'        : 5, # convolutional kernel size 
            'channel_base'       : 4, # number of features per joints
@@ -7,7 +8,8 @@ options = {'kernel_size'        : 5, # convolutional kernel size
            'window_size'        : 16}# size of the window motion analyzed
 
 def get_options():
-    with open('./options.json') as f:
+    script_dir = os.path.dirname(__file__)
+    with open(script_dir + '/options.json') as f:
         options = json.load(f)
     return options
 

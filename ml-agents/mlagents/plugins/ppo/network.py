@@ -6,6 +6,7 @@ class MLPNet(torch.nn.Module):
                  output_dim:int,
                  hidden_dim:int=64,
                  num_layers:int=1, 
+                 mid_activation = torch.nn.Tanh(),
                  last_activation=torch.nn.Tanh()):
 
         super(MLPNet, self).__init__()
@@ -14,11 +15,11 @@ class MLPNet(torch.nn.Module):
         
         seq = []
         seq.append(torch.nn.Linear(input_dim, hidden_dim))
-        seq.append(torch.nn.Tanh() )
+        seq.append(mid_activation)
 
         for i in range(num_layers):
             seq.append(torch.nn.Linear(hidden_dim, hidden_dim))
-            seq.append(torch.nn.Tanh())
+            seq.append(mid_activation)
         
         seq.append(torch.nn.Linear(hidden_dim, output_dim))
         seq.append(last_activation)
