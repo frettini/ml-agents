@@ -14,7 +14,7 @@ from options import get_options
 
 # initialize logger which then becomes global to the rest of the project
 t = time.localtime()
-log_dir = 'runs/beans/lafan_{}/'.format(time.strftime("%d_%m_%Y-%H_%M", t))
+log_dir = 'runs/beans/line_lafan_{}/'.format(time.strftime("%d_%m_%Y-%H_%M", t))
 log_dir = os.path.join(os.getcwd(),log_dir)
 print("Logging at : ", log_dir)
 log.init(log_dir)
@@ -29,7 +29,7 @@ print("Default device : ", default_device())
 
 
 # model save path
-save_path = '/models/Walker_{}/'.format(time.strftime("%d_%m_%Y-%H_%M", t))
+save_path = '/models/Line_nospeed_{}/'.format(time.strftime("%d_%m_%Y-%H_%M", t))
 save_path = os.path.dirname(__file__) + save_path
 if not os.path.isdir(save_path):
     os.mkdir(save_path)
@@ -68,7 +68,7 @@ while(ppo_agent.cumulated_training_steps < options["max_training_steps"]):
     epoch += 1
     
     if(epoch % 5 == 0):
-        ppo_agent.save(save_path + "LafanWalker_ep_{}.pt".format(epoch))
+        ppo_agent.save(save_path + "LafanLine_ep_{}.pt".format(epoch))
 
-ppo_agent.save(save_path + "LafanWalker_complete.pt")
+ppo_agent.save(save_path + "LafanLine_complete.pt")
 env.close()

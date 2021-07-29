@@ -223,8 +223,8 @@ class PPO:
         self.eps_clip = options["eps_clip"]
         self.K_epochs = options["K_epochs"]
         
-        behaviour_name = list(behaviour_spec)[0]
         # Initialize a running mean std that will be shared between the actorcritics
+        behaviour_name = list(behaviour_spec)[0]
         running_mean_std = RunningMeanStd(shape=behaviour_spec[behaviour_name].observation_specs[0].shape[0])
 
         self.policy = ActorCritic(behaviour_spec, options, running_mean_std=running_mean_std).to(self.device)
@@ -232,20 +232,18 @@ class PPO:
                         {'params': self.policy.actor.parameters(), 'lr': options["lr_actor"]},
                         {'params': self.policy.critic.parameters(), 'lr': options["lr_critic"]}
                     ])
-        self.scheduler = torch.optim.lr_scheduler.StepLR(self.optimizer, step_size=1, gamma=options["scheduler_gamma"])
+        self.scheduler = torch.optim.lr_scheduler.StepLR(self.optimizer, step_size=options["scheduler_step"], gamma=options["scheduler_gamma"])
             
         # keep track of the previous policy to generate the ratio
         self.policy_old = ActorCritic(behaviour_spec, options, running_mean_std=running_mean_std).to(self.device)
         self.policy_old.load_state_dict(self.policy.state_dict())
         
-        # dictionary of buffers which maps an agent to a trajectory
-        self.agent_buffers = {}
+        # buffer of observations
         self.buffer = RolloutBuffer()
-        self.buffer_size = options["buffer_size"]
-        self.cumulated_training_steps = 0
 
         self.MseLoss = torch.nn.MSELoss()
 
+        self.cumulated_training_steps = 0
         self.cumulated_reward = 0
         self.last_decay_action_check = 0
 
@@ -299,7 +297,7 @@ class PPO:
 
             return action, logprobs
 
-    def get_trajectory(self, env):
+    # def get_trajectory(self, env):
         """
         Computes the trajectory of the environment for every agent in the scene. 
         Stores the trajectory in RolloutBuffers.
@@ -365,10 +363,14 @@ class PPO:
             env.step()
             
             if step % self.options["print_freq"] == 0:
+                num = 0
+                reward  = 0
                 if len(decision_steps) > 0:
-                    reward = np.mean(decision_steps.reward)
+                    num += len(decision_steps)
+                    reward += np.sum(decision_steps.reward)
                 elif len(terminal_steps) > 0:
-                    reward = np.mean(terminal_steps.reward)
+                    num += len(terminal_steps)
+                    reward += np.sum(terminal_steps.reward)
                 else: reward = 'None'
 
                 print("step: {} \t cumulated steps: {} \t reward: {} ".format(step, cumulated_steps, np.mean(reward)))
@@ -397,7 +399,7 @@ class PPO:
         
         num_batches = (buffer_length // self.options["batch_size"]) 
         batch_indices = list(range(num_batches))
-        cumul_entropy = cumul_loss_policy = cumul_loss_value = cumul_values = 0
+        cumul_entropy = cumul_loss_policy = cumul_loss_value = cumul_values = cumul_returns = 0
 
         # Optimize policy for K epochs
         for _ in range(self.K_epochs):
@@ -442,6 +444,7 @@ class PPO:
                 loss.mean().backward()
                 self.optimizer.step()
                 
+                cumul_returns += torch.mean(returns).item()
                 cumul_values +=  torch.mean(state_values).item()
                 cumul_entropy += torch.mean(dist_entropy).item()
                 cumul_loss_policy += torch.mean(torch.min(surr1, surr2)).item()
@@ -449,13 +452,14 @@ class PPO:
 
         # Log Information
         N = len(batch_indices*self.K_epochs)
+        log.writer.add_scalar("Policy/Returns", cumul_returns/N, self.cumulated_training_steps)
         log.writer.add_scalar("Policy/Value Estimate", cumul_values/N, self.cumulated_training_steps)
         log.writer.add_scalar("Policy/Entropy", cumul_entropy/N, self.cumulated_training_steps)
         log.writer.add_scalar("Losses/Policy", cumul_loss_policy/N, self.cumulated_training_steps)
         log.writer.add_scalar("Losses/Value",  cumul_loss_value/N, self.cumulated_training_steps)
         log.writer.add_scalar("Policy/Learning Rate", self.scheduler.get_last_lr()[0], self.cumulated_training_steps)
         log.writer.add_scalar("Policy/Action Std", self.action_std, self.cumulated_training_steps)
-        cumul_entropy = cumul_loss_policy = cumul_loss_value = cumul_values= 0
+        cumul_entropy = cumul_loss_policy = cumul_loss_value = cumul_values = cumul_returns = 0
                     
         # Copy new weights into old policy
         self.policy_old.load_state_dict(self.policy.state_dict())

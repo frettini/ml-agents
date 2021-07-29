@@ -513,11 +513,11 @@ def get_pos_info_from_raw(input_data : torch.Tensor, skdata, offsets, options, n
         rotation_offset = rotation_offset.repeat(rotation_local.shape[0],rotation_local.shape[1],1)
         print(rotation_offset.shape)
         print(rotation_local[:,:,0,:].shape)
-        rotation_local[:,:,0,:] = utils.quat_mul(rotation_offset.float(), rotation_local[:,:,0,:])
+        rotation_local[:,:,0,:] = quat_mul(rotation_offset.float(), rotation_local[:,:,0,:])
 
     # extract position information
-    _, position_global = utils.quat_fk(rotation, offsets, skdata.parents)
-    _, position_local = utils.quat_fk(rotation_local, offsets, skdata.parents)
-    velocity_local = utils.get_batch_velo2(position_local, skdata.frametime)
+    _, position_global = quat_fk(rotation, offsets, skdata.parents)
+    _, position_local = quat_fk(rotation_local, offsets, skdata.parents)
+    velocity_local = get_batch_velo2(position_local, skdata.frametime)
 
     return position_global, position_local, rotation_global, velocity_global, velocity_local
