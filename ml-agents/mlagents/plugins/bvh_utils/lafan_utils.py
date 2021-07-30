@@ -504,7 +504,7 @@ def get_pos_info_from_raw(input_data : torch.Tensor, skdata, offsets, options, n
         # the current output rotation is not necessarily a normalized quaternion
         rotation = torch.nn.functional.normalize(rotation, dim=3)
 
-    rotation_global = rotation[:,:,0,:].reshape(curr_batch_size, options['window_size'], -1)
+    root_rotation = rotation[:,:,0,:].reshape(curr_batch_size, options['window_size'], -1)
     rotation_local = torch.clone(rotation)
     rotation_local[:,:,0,:] = torch.tensor([1,0,0,0]).float()
     
@@ -520,4 +520,4 @@ def get_pos_info_from_raw(input_data : torch.Tensor, skdata, offsets, options, n
     _, position_local = quat_fk(rotation_local, offsets, skdata.parents)
     velocity_local = get_batch_velo2(position_local, skdata.frametime)
 
-    return position_global, position_local, rotation_global, velocity_global, velocity_local
+    return position_global, position_local, root_rotation, velocity_global, velocity_local, rotation_local

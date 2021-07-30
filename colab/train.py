@@ -19,14 +19,12 @@ def paths_setup(model_path, log_path, behaviour_name):
 
     # log path
     log_dir = log_path + '{}_{}/'.format(behaviour_name, prt_time)
-    # print(behaviour_name)
-    # print(os.getcwd())
-    log_dir = os.path.dirname(__file__) + log_dir
+    log_dir = os.path.dirname(os.path.abspath(__file__)) + log_dir
     log_dir = os.path.join(os.getcwd(),log_dir)
 
      # model save path
     model_dir = model_path + '{}_{}/'.format(behaviour_name, prt_time)
-    model_dir = os.path.dirname(__file__) + model_dir
+    model_dir = os.path.dirname(os.path.abspath(__file__)) + model_dir
     if not os.path.isdir(model_dir):
         os.mkdir(model_dir.replace('/','\\'))
 
@@ -57,7 +55,7 @@ if __name__ == "__main__":
 
     # initialize model save path and logging path 
     model_path = "/models/"
-    log_path = "/runs/line_ppo/"
+    log_path = "/runs/line_ppo/clipped_grad/"
     model_dir, log_dir = paths_setup(model_path, log_path, list(env.behavior_specs)[0])
     log.init(log_dir)
 

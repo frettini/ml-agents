@@ -8,6 +8,7 @@ from mlagents.plugins.ppo.PPO import PPO
 from mlagents.plugins.ppo.buffer import RolloutBuffer
 from mlagents.plugins.ppo.network import Discriminator
 from mlagents.plugins.dataset.dataset import TemporalMotionData, SkeletonInfo
+from mlagents.plugins.bvh_utils.lafan_utils import get_pos_info_from_raw
 
 import mlagents.plugins.utils.logger as log
 
@@ -40,11 +41,13 @@ class AMPTainer():
 
         # LOAD DATA FROM MOTION CAPTURE DATASET
         # Setup LaFan dataset and skeleton information
-        lafan_dataset = TemporalMotionData(motion_path, recalculate_mean_var=True, normalize_data=True, xyz='zxy', rot_order=None)
-        self.skdata = lafan_dataset.skdata
+        self.adv_dataset = TemporalMotionData(motion_path, recalculate_mean_var=True, normalize_data=True, xyz='zxy', rot_order=None)
+        self.skdata : SkeletonInfo = self.adv_dataset.skdata
+        self.scale = 100
 
         # INIT DISCRIMINATOR
         self.discrim = Discriminator(options)
+        self.features_per_joints=13
 
         # INIT TRAJECTORY RETRIEVAL
         # dictionary of buffers which maps an agent to a trajectory
@@ -56,7 +59,7 @@ class AMPTainer():
         self.last_decay_action_check = 0
 
 
-        pass
+        
 
     def train(self):
         """
@@ -75,7 +78,10 @@ class AMPTainer():
             self.get_trajectory()
 
             # get the style reward from the discriminator
-            
+            # self.compute_style_reward()
+
+            # update the discriminator 
+            # self.discrim_update()
 
             # update the policy using the collected buffer
             self.ppo_agent.batch_update()
@@ -183,6 +189,7 @@ class AMPTainer():
 
         self.cumulated_training_steps += self.options["buffer_size"]
         self.ppo_agent.cumulated_training_steps = self.cumulated_training_steps
+        log.log_step = self.cumulated_training_steps
 
         # take all our buffers and concatenated them into a large buffer on which update will be performed
         self.ppo_agent.buffer = RolloutBuffer()
@@ -192,14 +199,106 @@ class AMPTainer():
 
     def compute_style_reward(self):
         # get pair of observations from the buffer and concatenate them 
+        batch_size = self.options["batch_size_discrim"]
+        num_iter = len(self.ppo_agent.buffer) / batch_size
 
-        # get pair of observations from the dataset and concatenate them
+        # iterate through the entire buffer in batches
+        for i in range(num_iter):
+            start_ind  =  i*batch_size
+            end_ind = i*(batch_size + 1) + 1
 
-        # construct batches of the same size 
+            # check that we dont overflow
+            if end_ind >= len(self.ppo_agent.buffer):
 
-        # run otpimize and get the 
+                # if we do, reduce the batch size to the len of the buffer
+                end_ind = len(self.ppo_agent.buffer) - 1
+                buffer_batch = self.ppo_agent.buffer.states[start_ind:end_ind]
+                # also take care of the last frame (double the last observation)
+                buffer_batch = torch.cat(buffer_batch, self.ppo_agent.buffer.states[-1,:], dim=0)
+            else:
+                buffer_batch = self.ppo_agent.buffer.states[start_ind:end_ind]
 
+            # get the discriminator input from buffer
+            discrim_input  = self.buffer_to_discrim(buffer_batch)
+
+            # call the discriminator G_reward
+            style_reward = self.discrim(discrim_input)
+            
+            # add the reward to the buffer.reward (remember to add the factors)
+            self.ppo_agent.buffer.rewards[start_ind:end_ind] = self.options["goal_factor"] * self.ppo_agent.buffer.rewards[start_ind:end_ind]  \
+                                                               + self.options["style_factor"] * style_reward
+
+        log.writer.add_scalar("Reward/Discriminator", self.discrim.cumul_g_reward/num_iter, self.cumulated_training_steps)
+
+    def discrim_update(self):
         
-        pass
+        batch_size = self.options["batch_size_discrim"] 
+        window_size = self.options["window_size"]
+        n_batches = self.options["buffer_size"] / batch_size
 
+        # for loop or not?
+        for i in range(self.options["K_discrim"]):
+            # sample batch size from the motion dataset
+            n_wind = (batch_size+1)/window_size # +1 to account for next state
+            rand_ind = np.random.randint(n_wind)
+            adv_motion = self.adv_dataset[rand_ind]
+
+            adv_motion = adv_motion.reshape(-1, adv_motion.shape[-1])
+            adv_motion = adv_motion[:batch_size+1,:]
+
+            # extract the motion information, make sure its local, and compute the forward kinematics
+            # MAKE SURE TO APPLY THE ROTATION OFFSET
+            real_input = self.adversarial_to_discrim(adv_motion)
+
+            # sample batch size from the buffer 
+            # extract the information from it and concatenate in a single vector 
+            # get the frames in batch size + 1 to account for the last next frame
+            ind = i % n_batches-1
+            start_ind  =  i*batch_size
+            end_ind = i*(batch_size + 1) + 1
+            buffer_batch = self.ppo_agent.buffer.states[start_ind:end_ind]
+            fake_input = self.buffer_to_discrim(buffer_batch)
+
+            # pass in the data to the discriminator so that it can update itself
+            self.discrim(real_input, fake_input)
+
+        log.writer.add_scalar("Loss/Discriminator", self.discrim.cumul_d_loss/self.options["K_discrim"], self.cumulated_training_steps)
+
+    def buffer_to_discrim(self, batch):
+        """
+        Extract rotation, position and velocity of current and next state and 
+        shape it to as an input for the discriminator
+        """
         
+        batch_size = self.options["batch_size_discrim"]
+
+        # extract the observations needed for the discriminator 
+        # extract only the observation corresponding to the joints
+        joint_features = batch[:,:-3]
+        joint_features = joint_features.reshape(batch_size,-1, self.features_per_joint)
+
+        velocity = batch[:,:,:3]
+        angular_vel = batch[:,:,3:6]
+        positions = batch[:,:,6:9]
+        rotations = batch[:,:,9:]
+
+        # stack them vertically in one big vector 
+        feature_stack = torch.cat(velocity.reshape(batch_size,-1),positions.reshape(batch_size,-1),rotations.reshape(batch_size,-1), dim=1)
+        # stack the current state and next state in a single buffer
+        discrim_input = torch.vstack(feature_stack[:-1,:], feature_stack[1:,:])
+
+        return discrim_input
+
+    def adversarial_to_discrim(self, batch):
+
+        adv_offsets = self.skdata.offsets.clone()/self.scale
+        rotation_offset = torch.tensor([ 0.5 ,-0.5, 0.5, 0.5])#Quaternions.from_euler(np.array([0,0,0]), 'xyz').qs)
+        adv_data = get_pos_info_from_raw(batch, self.skdata, adv_offsets, self.options, norm_rot=False, rotation_offset=rotation_offset)
+        adv_pos_global, adv_pos_local, adv_hips_rot, adv_hips_velo, adv_vel, adv_rot_local = adv_data
+
+        # velocity, position, and rotation
+        feature_stack = torch.cat(adv_vel, adv_pos_local, adv_rot_local, dim=1)
+        # stack the current state and next state in a single buffer
+        discrim_input = torch.vstack(feature_stack[:-1,:], feature_stack[1:,:])
+
+        return discrim_input

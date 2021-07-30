@@ -70,6 +70,9 @@ class ActorCritic(torch.nn.Module):
                               mid_activation=activation_dict[options["last_activation_critic"]],
                               last_activation=activation_dict[options["last_activation_critic"]])
 
+        # initialize the actor and critics weights using orthogonal initialization
+        self.initialize_weights()
+
         if options["normalize"] is True:
             if running_mean_std is None:
                 self.running_mean_std = RunningMeanStd(shape=state_dim)
@@ -110,6 +113,38 @@ class ActorCritic(torch.nn.Module):
         )
         # --------------------------------------------------------------------------------------
         
+    def initialize_weights(self):
+        print("Initialize Actor Weights")
+        layer_number = 0
+        for i, layer_info in enumerate(self.actor.model.named_parameters()):
+            name, param = layer_info
+
+            if 'weight' in name:
+                if layer_number == self.options["num_layers_actor"]:
+                    torch.nn.init.orthogonal_(param, gain=np.sqrt(0.01))
+                else:
+                    torch.nn.init.orthogonal_(param, gain=np.sqrt(2))
+
+            elif 'bias' in name:
+                layer_number += 1
+                torch.nn.init.zeros_(param)
+
+        print("Initialize Critic Weights")
+        # initialize critic weights
+        layer_number = 0
+        for i,layer_info in enumerate(self.critic.model.named_parameters()):
+            name, param = layer_info
+
+            if 'weight' in name:
+                if layer_number == self.options["num_layers_critic"]:
+                    torch.nn.init.orthogonal_(param, gain=np.sqrt(0.01))
+                else:
+                    torch.nn.init.orthogonal_(param, gain=np.sqrt(2))
+
+            elif 'bias' in name:
+                layer_number += 1
+                torch.nn.init.zeros_(param)
+    
     def set_action_std(self, new_action_std):
 
         if self.has_continuous_action_space:
@@ -237,7 +272,7 @@ class PPO:
         # keep track of the previous policy to generate the ratio
         self.policy_old = ActorCritic(behaviour_spec, options, running_mean_std=running_mean_std).to(self.device)
         self.policy_old.load_state_dict(self.policy.state_dict())
-        
+
         # buffer of observations
         self.buffer = RolloutBuffer()
 
@@ -417,10 +452,12 @@ class PPO:
 
                 # Evaluating old actions and values
                 logprobs, state_values, dist_entropy = self.policy.evaluate(old_states, old_actions)
+                _, old_state_values, _ = self.policy_old.evaluate(old_states, old_actions)
 
                 # match state_values tensor dimensions with rewards tensor
                 state_values = torch.squeeze(state_values)
-                
+                old_state_values = torch.squeeze(old_state_values)
+
                 if self.options["advantage"] == "montecarlo":
                     advantages, returns = self.montecarlo_return(state_values, batch_buffer)
                 elif self.options["advantage"] == "gae":
@@ -436,19 +473,26 @@ class PPO:
                 surr1 = ratios * advantages
                 surr2 = torch.clamp(ratios, 1-self.eps_clip, 1+self.eps_clip) * advantages
 
+                value_loss1 = self.MseLoss(state_values, returns)
+                value_loss2 = torch.maximum(torch.minimum(state_values, old_state_values + self.eps_clip), old_state_values-self.eps_clip)
+                value_loss3 = 0.5*torch.maximum(value_loss1, self.MseLoss(value_loss2, returns))
+
+                # value_loss = 0.5*self.MseLoss(state_values, returns)
+
                 # final loss of clipped objective PPO
-                loss = -torch.min(surr1, surr2) + 0.5*self.MseLoss(state_values, returns) - 0.01*dist_entropy
+                loss = -torch.min(surr1, surr2) + value_loss3 - 0.01*dist_entropy
 
                 # take gradient step
                 self.optimizer.zero_grad()
                 loss.mean().backward()
+                torch.nn.utils.clip_grad_norm_(list(self.policy.actor.parameters()) + list(self.policy.critic.parameters()), max_norm=0.5)
                 self.optimizer.step()
                 
                 cumul_returns += torch.mean(returns).item()
                 cumul_values +=  torch.mean(state_values).item()
                 cumul_entropy += torch.mean(dist_entropy).item()
                 cumul_loss_policy += torch.mean(torch.min(surr1, surr2)).item()
-                cumul_loss_value += 0.5*self.MseLoss(state_values, returns).item()
+                cumul_loss_value += value_loss3.item()
 
         # Log Information
         N = len(batch_indices*self.K_epochs)
@@ -486,7 +530,7 @@ class PPO:
             returns.insert(0, (gae + values[i]))
 
         returns = torch.tensor(returns).float()
-        adv = torch.tensor(returns, dtype=torch.float32) - values[:-1]
+        adv = returns - values[:-1]
         adv = adv - adv.mean() / (adv.std() + 1e-7)
         return adv, returns
 

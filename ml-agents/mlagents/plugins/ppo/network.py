@@ -1,4 +1,5 @@
 from mlagents.torch_utils import torch, default_device
+import mlagents.plugins.utils.logger as log
 
 # dictionary of various activation function that are specified in the options
 activation_dict = {"tanh":torch.nn.Tanh(), "sigmoid":torch.nn.Sigmoid(),
@@ -8,7 +9,7 @@ activation_dict = {"tanh":torch.nn.Tanh(), "sigmoid":torch.nn.Sigmoid(),
 class MLPNet(torch.nn.Module):
     def __init__(self, input_dim:int,
                  output_dim:int,
-                 hidden_dim:int=64,
+                 hidden_dim:list=[64],
                  num_layers:int=1, 
                  mid_activation = torch.nn.Tanh(),
                  last_activation=torch.nn.Tanh()):
@@ -18,19 +19,21 @@ class MLPNet(torch.nn.Module):
         self.layers = torch.nn.ModuleList()
         
         seq = []
-        seq.append(torch.nn.Linear(input_dim, hidden_dim))
-        seq.append(mid_activation)
 
-        for i in range(num_layers):
-            seq.append(torch.nn.Linear(hidden_dim, hidden_dim))
-            seq.append(mid_activation)
-        
-        seq.append(torch.nn.Linear(hidden_dim, output_dim))
-        seq.append(last_activation)
+        input_list = [input_dim] + hidden_dim
+        output_list = hidden_dim + [output_dim] 
+
+        for i in range(len(input_list)):
+
+            seq.append(torch.nn.Linear(input_list[i], output_list[i]))
+
+            if i == len(input_list)-1:
+                seq.append(last_activation)
+            else:    
+                seq.append(mid_activation)
 
         self.model = torch.nn.Sequential(*seq)
-
-        
+    
     def forward(self, input):
         output = self.model.forward(input)
         return output
@@ -54,6 +57,9 @@ class Discriminator(torch.nn.Module):
         self.real_label = 1
         self.false_label = -1
 
+        self.cumul_d_loss = 0
+        self.cumul_g_reward = 0
+
     def forward(self, input):
         output = self.discrim(input)
         return torch.sigmoid(output)
@@ -69,6 +75,7 @@ class Discriminator(torch.nn.Module):
         # reward from discriminator :
         temp = 1-0.25*(self.forward(input)-1)**2
         reward = torch.maximum(temp, torch.zeros_like(temp))
+        self.cumul_g_reward += reward
         return reward
 
     def D_loss(self, real_input, fake_input):
@@ -107,13 +114,11 @@ class Discriminator(torch.nn.Module):
         d_loss.backward()
         d_loss.step()
 
-        g_loss = self.G_reward(fake_input)
-        return g_loss
-
+        self.cumul_d_loss += d_loss
 
 
 
 if __name__ == "__main__":
-    actor = MLPNet(40,10,20,last_activation=torch.nn.Identity())
+    actor = MLPNet(40,10,[30,20],2,last_activation=torch.nn.Identity())
     res = actor.forward(torch.rand((40,),dtype=torch.float32))
     print(res)
