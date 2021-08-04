@@ -4,6 +4,7 @@ import os
 from mlagents_envs.registry import default_registry
 from mlagents.trainers.settings import TorchSettings
 from mlagents_envs.environment import UnityEnvironment
+from mlagents_envs.side_channel.engine_configuration_channel import EngineConfigurationChannel
 
 from mlagents.torch_utils import default_device, set_torch_config
 from mlagents.plugins.dataset.skeleton_side_channel import Skeleton_SideChannel
@@ -43,19 +44,22 @@ if __name__ == "__main__":
     print("Default device : ", default_device())
 
     # filename = None enables to communicate directly with the unity editor
-    env_file = None
+    env_file = "/myenv/" 
+    env_file = os.path.dirname(os.path.abspath(__file__)) + env_file
+    # env_file = None
     if env_file is None:
         print("Env file is null, press play on the Editor to start the training.")
 
     # initialize the environment
     sk_side_channel = Skeleton_SideChannel()
-    side_channels = {"skeleton":sk_side_channel}
-    env = UnityEnvironment(file_name=None, seed=1, side_channels=[sk_side_channel])
+    eng_side_channel = EngineConfigurationChannel()
+    side_channels = {"skeleton":sk_side_channel, "engine":eng_side_channel}
+    env = UnityEnvironment(file_name=env_file, seed=1, side_channels=[sk_side_channel, eng_side_channel])
     env.reset()
 
     # initialize model save path and logging path 
     model_path = "/models/"
-    log_path = "/runs/line_ppo/clipped_grad/"
+    log_path = "/runs/line_AMP/only_discrim/"
     model_dir, log_dir = paths_setup(model_path, log_path, list(env.behavior_specs)[0])
     log.init(log_dir)
 

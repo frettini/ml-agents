@@ -6,8 +6,7 @@ import numpy as np
 
 from mlagents.plugins.bvh_utils import BVH_mod as BVH
 from mlagents.plugins.bvh_utils.Quaternions import Quaternions 
-from mlagents.plugins.bvh_utils.lafan_utils import get_velocity, build_edges, build_chain_list, get_height
-from mlagents.plugins.bvh_utils.lafan_utils import quat_mul
+import mlagents.plugins.bvh_utils.lafan_utils as utils
 from mlagents.plugins.skeleton_aware_op.options import get_options 
 
 
@@ -65,7 +64,7 @@ class TemporalMotionData(torch.utils.data.Dataset):
             if xyz != 'xyz':
                 rotate = rotations[0,0,:]
                 rotate[0] = -rotate[0]
-                rotations[:,0:1,:] = quat_mul(rotate, rotations[:,0:1,:])
+                rotations[:,0:1,:] = utils.quat_mul(rotate, rotations[:,0:1,:])
                 rotations[0,0,:] = torch.tensor([1,0,0,0]).float()
 
             num_frames = rotations.shape[0]
@@ -78,7 +77,7 @@ class TemporalMotionData(torch.utils.data.Dataset):
             rotations = rotations[:,index, :]
 
             # get the global velocity:
-            glob_velocity = get_velocity(glob_position, frametime)
+            glob_velocity = utils.get_velocity(glob_position, frametime)
 
             # concatenate the rotations, global pos and a padding together [frames, joints*channel_base]
             rotations_cat = rotations.reshape(num_frames, -1)
@@ -172,6 +171,161 @@ class TemporalMotionData(torch.utils.data.Dataset):
         mean_var_file_path = os.path.join(input_path, 'mean_var.npy')
         np.save(mean_var_file_path, self.mean_var.detach().cpu().numpy(), allow_pickle=True)
 
+    def reconstruct_from_windows(self, input_motion):
+        """
+        Reconstruct the motion from a set of overlapping windows (the same overlap as 
+        they are constructed with). 
+        :params input_motion: tensor [num_batch, num_windows, num_joints, channel_size]
+        """
+        overlap = self.window_size//2
+        init_motion = input_motion[0,:overlap]
+        output = input_motion[1:,overlap:].reshape(-1, input_motion.shape[-2], input_motion.shape[-1])
+        output = torch.cat((init_motion,output), dim=0)
+        return output
+
+
+class Motion_Dataset(torch.utils.data.Dataset):
+
+    def __init__(self, input_path:str, recalculate_mean_var:bool = False, xyz='xyz', rotation_offset = None, device:str='cpu'):
+
+        options = get_options()
+        self.window_size = options['window_size']
+        torch.device(device)
+
+        self.skdata = SkeletonInfo(input_path)
+
+        input_files = []
+        for file in os.listdir(input_path):
+            if file.endswith('.bvh'):
+                input_files.append(file)
+        
+        file_rotations = []
+        file_positions = []
+        file_velocities = []
+
+        # cycle through all files in the directory
+        # add the motion to the list 
+        for i, file in enumerate(input_files):
+
+            full_path = os.path.join(input_path, file)
+            anim, names, frametime = BVH.load(full_path, need_quater = True)
+            
+            # extract information from positions
+            # anim rotation shape : [motion_lenght, num_joints, 4]
+            # anim position shape : [motion_lenght, num_joints, 3]
+            tmp_pos = anim.positions.copy()
+            tmp_rot = anim.rotations.qs.copy()
+
+            # reorder to fit the frame of reference
+            for ind, letter in enumerate(xyz):
+                if letter == 'x':
+                    anim.positions[..., ind] = tmp_pos[..., 0]
+                    anim.rotations.qs[..., ind+1] = tmp_rot[..., 1]
+                elif letter == 'y':
+                    anim.positions[..., ind] = tmp_pos[..., 1]
+                    anim.rotations.qs[..., ind+1] = tmp_rot[..., 2]
+                elif letter == 'z':
+                    anim.positions[..., ind] = tmp_pos[..., 2]
+                    anim.rotations.qs[..., ind+1] = tmp_rot[..., 3]
+
+            root_position = torch.tensor(anim.positions[:, 0, :]).float()
+            rotations = torch.tensor(anim.rotations.qs).float()
+            
+            # we don't care about the global hips rotation 
+            # create rotations local to root
+            rotations[:,0,:] = torch.tensor([1,0,0,0]).float()
+
+            # apply rotation offset to the rotations local to root to get the positions in the correct coordinate system
+            if rotation_offset is not None:
+                rotation_offset_r = rotation_offset.reshape(1,1,4)
+                rotation_offset_r = rotation_offset.repeat(rotations.shape[0], rotations.shape[1], 1)
+                rotations[:,0,:] = utils.quat_mul(rotation_offset_r.float(), rotations[:,0,:])
+
+            # and offsets to [batch_size, n_joints, 3]
+            num_frames = rotations.shape[0]
+            offsets = self.skdata.reshape(1, self.skdata.offsets.shape[0], self.skdata.offsets.shape[1])
+            offsets = offsets.repeat(num_frames, 1, 1)
+            
+            # produces the positions local to the root (not local to parents)
+            _ , positions = utils.quat_fk(rotations, offsets, self.skdata.parents)
+            positions[:,0,:] = root_position
+
+            # get the global velocity:
+            velocities = utils.get_velocity(positions, frametime)
+            velocities[:,1:,:] += velocities[:,0:1,:] 
+
+            # add to list of motions to then be concatenated 
+            file_rotations.append(rotations)
+            file_positions.append(positions)
+            file_velocities.append(velocities)
+
+        self.rotations = torch.cat(file_rotations, dim=0)
+        self.positions = torch.cat(file_positions, dim=0)
+        self.velocities = torch.cat(file_velocities, dim=0)
+        print("[DATASET] rotation : {} \t position : {}, \t velocities : {}".format(self.rotations.shape,self.positions.shape,self.velocities.shape))
+
+        if(recalculate_mean_var):
+            self.save_mean_var(input_path)
+        else:
+            print("[DATASET] load mean var")
+            mean_var_file_path = os.path.join(input_path, 'mean_var.npy')
+            mean_var = np.load(mean_var_file_path)
+            self.mean_var = torch.tensor(mean_var)
+
+    def __len__(self):
+        return self.rotations.shape[0]
+
+    def __getitem__(self):
+        pass
+
+    def normalize(self):
+        pass
+
+    def denormalize(self, rotations = None, positions = None, velocities = None):
+        if rotations is not None:
+            pass
+        if positions is not None:
+            pass
+        if velocities is not None: 
+            pass
+    
+    def denormalize_skao(self):
+        pass
+
+    def save_mean_var(self):
+        """
+        Save the mean and variance of the input motion into a npy file
+        """
+        
+        # rot = input_concatenated.reshape(-1, input_concatenated.shape[-1])
+        # pos = 
+        # vel = 
+
+        print("[DATASET] input concatenated shape: ", input_concatenated.shape)
+
+        mean = torch.mean(input_concatenated, dim = 0, keepdim = True)
+        var = torch.var(input_concatenated, dim = 0, keepdim = True)
+        
+        # replace any 0s by 1s to avoid division by 0
+        var = torch.where( var < 1e-5, 1., var)
+        var = var ** (1/2)
+
+        print("[DATASET] mean shape: ", mean.shape)
+        print("[DATASET] var shape: ", var.shape)
+
+        # save it in a single file with structure [[mean],[var]] shape [2, J*4]
+        self.mean_var = torch.cat([mean,var], dim=0)
+        self.mean_var = self.mean_var[..., np.newaxis]
+
+        print("[DATASET] mean var shape :", self.mean_var.shape)
+
+        mean_var_file_path = os.path.join(input_path, 'mean_var.npy')
+        np.save(mean_var_file_path, self.mean_var.detach().cpu().numpy(), allow_pickle=True)
+
+    def load_mean_var():
+        pass
+
+
 class SkeletonInfo:
     def __init__(self, input_path, subsample=False, xyz = 'xyz'):
         """
@@ -199,7 +353,7 @@ class SkeletonInfo:
 
         # generate edge list
         self.num_joints = len(anim.parents)
-        self.edges = build_edges(anim.parents)
+        self.edges = utils.build_edges(anim.parents)
         self.parents = anim.parents
         self.frametime = frametime
 
@@ -216,7 +370,7 @@ class SkeletonInfo:
         # This algorithm works for skeletons with same topology but different number of joints
         # and proportions. This means that there are an equivalent number of chains.
         # We extract the joint indices of each chain here, which will be used for some losses.
-        self.chain_indices = build_chain_list(self.edges)
+        self.chain_indices = utils.build_chain_list(self.edges)
 
         offsets     = anim.offsets.copy()
         for ind, letter in enumerate(xyz):
@@ -231,7 +385,7 @@ class SkeletonInfo:
         self.offsets = torch.tensor(offsets).float()
         self.offsets[0,:] = torch.zeros(3).float()
         # get height (heighest point minus lowest)
-        self.height = get_height(self.parents, self.offsets)
+        self.height = utils.get_height(self.parents, self.offsets)
 
         offset_norms = torch.linalg.norm(self.offsets,dim=1)
         offset_norms[0] = 0 # remove global pos

@@ -279,7 +279,6 @@ class PPO:
         self.MseLoss = torch.nn.MSELoss()
 
         self.cumulated_training_steps = 0
-        self.cumulated_reward = 0
         self.last_decay_action_check = 0
 
     def set_action_std(self, new_action_std):

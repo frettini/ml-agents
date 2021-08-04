@@ -47,7 +47,6 @@ def skeleton_plot(points, edges, color, limits=None, save_filename = None):
 
     plt.show()
 
-
 def two_skeleton_plot(points_sk1, points_sk2, edges_sk1, edges_sk2, color1, color2, limits=None, save_filename = None):
 
     # if limits is None:
@@ -144,34 +143,26 @@ def skeletons_plot(points_list, edges_list, colors_list, limits=None, save_filen
     else:
         plt.show()
 
+def motion_animation(motion_pos : list, edges : list, colors : list, limits=None, framerate=30):
 
-def motion_animation(motion_pos1, motion_pos2, edges1, edges2, limits=None):
+    num_frames = motion_pos[0].shape[0]
 
     fig = plt.figure()
     ax = p3.Axes3D(fig)
 
-    motion_pos1[:,:,2] = -motion_pos1[:,:,2] # flip axis
-    motion_pos2[:,:,2] = -motion_pos2[:,:,2] # flip axis
-    lines1 = np.zeros((len(edges1), 2, 3))
-    lines2 = np.zeros((len(edges2), 2, 3))
+    xzy = [0,1,2]
+    lcs = []
+    for j in range(len(motion_pos)):
+        # motion_pos[j][:,:,2] = -motion_pos[j][:,:,2] # flip axis
+        lines = np.zeros((len(edges[j]), 2, 3))
+        for i, e in enumerate(edges[j]):
+            point1 = motion_pos[j][0, e[0],:]
+            point2 = motion_pos[j][0, e[1],:]
+            lines[i,0,:] = point1[xzy]
+            lines[i,1,:] = point2[xzy]
+        lcs.append(art3d.Line3DCollection(lines, linewidths=2, color=colors[j]))
+        ax.add_collection3d(lcs[j])
 
-    xzy = [0,2,1]
-    for i, e in enumerate(edges1):
-        point1 = motion_pos1[0, e[0],:]
-        point2 = motion_pos1[0, e[1],:]
-        lines1[i,0,:] = point1[xzy]
-        lines1[i,1,:] = point2[xzy]
-
-    for i, e in enumerate(edges2):
-        point1 = motion_pos2[0, e[0],:]
-        point2 = motion_pos2[0, e[1],:]
-        lines2[i,0,:] = point1[xzy]
-        lines2[i,1,:] = point2[xzy]
-
-    lc1 = art3d.Line3DCollection(lines1, linewidths=2, color='g')
-    lc2 = art3d.Line3DCollection(lines2, linewidths=2, color='b')
-    ax.add_collection3d(lc1)
-    ax.add_collection3d(lc2)
 
     if limits is not None:
         ax.set_xlim(limits[0][0],limits[0][1])
@@ -180,32 +171,23 @@ def motion_animation(motion_pos1, motion_pos2, edges1, edges2, limits=None):
 
     def update_lines(num):
 
-        segments1 = np.zeros((len(edges1), 2, 3))
-        segments2 = np.zeros((len(edges2), 2, 3))
-
-        xzy = [0,2,1]
-        for i, e in enumerate(edges1):
-            point1 = motion_pos1[num, e[0],:]
-            point2 = motion_pos1[num, e[1],:]
-            segments1[i,0,:] = point1[xzy]
-            segments1[i,1,:] = point2[xzy]
-
-        for i, e in enumerate(edges2):
-            point1 = motion_pos2[num, e[0],:]
-            point2 = motion_pos2[num, e[1],:]
-            segments2[i,0,:] = point1[xzy]
-            segments2[i,1,:] = point2[xzy]
-
-        lc1.set_segments(segments1)
-        lc2.set_segments(segments2)
+        xzy = [0,1,2]
+        
+        for j in range(len(motion_pos)):
+            segments = np.zeros((len(edges[j]), 2, 3))
+            for i, e in enumerate(edges[j]):
+                point1 = motion_pos[j][num, e[0],:]
+                point2 = motion_pos[j][num, e[1],:]
+                segments[i,0,:] = point1[xzy]
+                segments[i,1,:] = point2[xzy]
+            lcs[j].set_segments(segments)
 
 
-    anim = animation.FuncAnimation(fig, update_lines, 16, 
-                               interval=30, blit=False)
+    anim = animation.FuncAnimation(fig, update_lines, num_frames, 
+                               interval=framerate, blit=False)
     
     
     return anim
-
 
 
 if __name__ == "__main__":

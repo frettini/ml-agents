@@ -7,7 +7,7 @@ import numpy as np
 from mlagents.plugins.bvh_utils import BVH_mod as BVH
 from mlagents.plugins.bvh_utils.Quaternions import Quaternions 
 from mlagents.plugins.bvh_utils.lafan_utils import get_velocity, build_edges, build_chain_list, get_height
-from mlagents.plugins.bvh_utils.lafan_utils import quat_mul
+from mlagents.plugins.bvh_utils.lafan_utils import quat_mul, quat_mul_vec, quat_inv
 from mlagents.plugins.skeleton_aware_op.options import get_options 
 
 
@@ -191,8 +191,8 @@ class TemporalMotionData(torch.utils.data.Dataset):
             # if modified, remove the offset using the first global rotation
             if xyz != 'xyz':
                 rotate = rotations[0,0,:]
-                rotate[0] = -rotate[0]
-                rotations[:,0:1,:] = quat_mul(rotate, rotations[:,0:1,:])
+                # rotate[0] = -rotate[0] # inverse rotation
+                rotations[:,0:1,:] = quat_mul(quat_inv(rotate), rotations[:,0:1,:])
                 rotations[0,0,:] = torch.tensor([1,0,0,0]).float()
 
             num_frames = rotations.shape[0]
@@ -216,6 +216,11 @@ class TemporalMotionData(torch.utils.data.Dataset):
 
             # get the global velocity:
             glob_velocity = get_velocity(glob_position, frametime)
+
+            if xyz != 'xyz':
+                rotate_r = rotate.clone().reshape(1,-1)
+                rotate_r = rotate_r.repeat(glob_velocity.shape[0],1)
+                glob_velocity = quat_mul_vec(quat_inv(rotate_r), glob_velocity[:,:])
 
             # concatenate the rotations, global pos and a padding together [frames, joints*channel_base]
             rotations_cat = rotations.reshape(num_frames, -1)
