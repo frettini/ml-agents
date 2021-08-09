@@ -237,6 +237,7 @@ class AMPTainer():
             # add the reward to the buffer.reward (remember to add the factors)
             goal_reward = torch.tensor(self.ppo_agent.buffer.rewards[start_ind:end_ind-1]).float()
             reward =  self.options["goal_factor"] * goal_reward + self.options["style_factor"] * style_reward
+            reward = torch.where(torch.logical_and(goal_reward < -0.99, goal_reward > -1.01), -1., reward.double()).float()
             self.ppo_agent.buffer.rewards[start_ind:end_ind-1] = reward.cpu().detach().tolist()
             
             self.cumul_style_reward += torch.mean(style_reward).detach()
