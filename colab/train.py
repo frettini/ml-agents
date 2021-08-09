@@ -46,7 +46,7 @@ if __name__ == "__main__":
     # filename = None enables to communicate directly with the unity editor
     env_file = "/myenv/" 
     env_file = os.path.dirname(os.path.abspath(__file__)) + env_file
-    # env_file = None
+    env_file = None
     if env_file is None:
         print("Env file is null, press play on the Editor to start the training.")
 
@@ -59,7 +59,7 @@ if __name__ == "__main__":
 
     # initialize model save path and logging path 
     model_path = "/models/"
-    log_path = "/runs/line_AMP/addedhiprotation/"
+    log_path = "/runs/beans/addedhiprotation/"
     model_dir, log_dir = paths_setup(model_path, log_path, list(env.behavior_specs)[0])
     log.init(log_dir)
 
@@ -67,7 +67,8 @@ if __name__ == "__main__":
     log.writer.add_text("Hyperparameters", str(options))
 
     # initialize the trainer, which in turn initializes the policies, discrim etc.. 
-    motion_path = "C:/Users/nicol/Work/Master/dissertation/ml-agents/colab/data/"
+    # motion_path = "C:/Users/nicol/Work/Master/dissertation/ml-agents/colab/data/"
+    motion_path = os.path.dirname(os.path.abspath(__file__)) + "/data/"
     trainer = AMPTainer(env,options,motion_path,side_channels, model_dir)
     
     # start the training loop

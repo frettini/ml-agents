@@ -31,7 +31,7 @@
 
 "action_std"            : 0.8,       
 "action_std_decay_rate" : 0.005,
-"min_action_std"        : 0.15,
+"min_action_std"        : 0.3,
 "action_std_decay_freq" : 20000,
 
 "eps_clip"              : 0.2,
