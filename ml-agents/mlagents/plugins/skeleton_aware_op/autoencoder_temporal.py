@@ -68,6 +68,10 @@ class Encoder(torch.nn.Module):
                 self.last_channel = self.edge_num[-1] * self.channel_base[i + 1]
 
     def forward(self, input, offset=None):
+        """
+        The input size is:
+        [batch_size, window_size, n_joints*channel_size]
+        """
         # padding the one zero row to global position, so each joint including global position has 4 channels as input
         # if self.args.rotation == 'quaternion' and self.args.pos_repr != '4d':
             # input = torch.cat((input, torch.zeros_like(input[:, [0], :])), dim=1)

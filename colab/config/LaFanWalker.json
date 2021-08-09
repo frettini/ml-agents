@@ -50,6 +50,8 @@
 
 
 "comment2"              : "SKELETON AWARE OPTIONS",
+"sk_K_epochs"           : 100,
+"sk_batch_size"         : 4,
 "kernel_size"           : 5,      
 "channel_base"          : 4,       
 "num_layers_ae"         : 2,       
