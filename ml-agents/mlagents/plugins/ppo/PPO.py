@@ -264,7 +264,7 @@ class PPO:
 
         self.policy = ActorCritic(behaviour_spec, options, running_mean_std=running_mean_std).to(self.device)
         self.optimizer = torch.optim.Adam([
-                        {'params': self.policy.actor.parameters(), 'lr': options["lr_actor"]},
+                        {'params': self.policy.actor.parameters(), 'lr': options["lr_actor"], 'weight_decay':0.0005},
                         {'params': self.policy.critic.parameters(), 'lr': options["lr_critic"]}
                     ])
         self.scheduler = torch.optim.lr_scheduler.StepLR(self.optimizer, step_size=options["scheduler_step"], gamma=options["scheduler_gamma"])
@@ -330,102 +330,6 @@ class PPO:
                 action, logprobs = self.policy_old.act(state)
 
             return action, logprobs
-
-    # def get_trajectory(self, env):
-        """
-        Computes the trajectory of the environment for every agent in the scene. 
-        Stores the trajectory in RolloutBuffers.
-        """
-        cumulated_steps = 0
-        step = 0
-        behavior_name = list(env.behavior_specs)[0]
-
-        while cumulated_steps < self.buffer_size:
-            decision_steps, terminal_steps = env.get_steps(behavior_name)
-
-            for agent_ind in terminal_steps:
-
-                # create a RolloutBuffer for any new agent 
-                if agent_ind not in self.agent_buffers.keys():
-                    self.agent_buffers[agent_ind] = RolloutBuffer()
-                    self.agent_buffers[agent_ind].clear()
-        
-                index = terminal_steps.agent_id_to_index[agent_ind]
-
-                # collect for the terminal step too
-                obs = terminal_steps.obs[0] # [num_agent, obs_dim]
-                action, act_logprob = self.batch_select_action(obs) #[num_agent, act_dim]
-
-                obs = torch.tensor(obs, requires_grad=False).float().to(self.device)
-
-                # append the information corresponding to each agent
-                self.agent_buffers[agent_ind].rewards.append(terminal_steps[agent_ind].reward)
-                self.agent_buffers[agent_ind].is_terminals.append(True)
-                self.agent_buffers[agent_ind].states.append(obs[index,:])
-                self.agent_buffers[agent_ind].actions.append(action[index,:])
-                self.agent_buffers[agent_ind].logprobs.append(act_logprob[index])
-
-                self.cumulated_reward +=  terminal_steps[agent_ind].reward
-            
-            # get next action for all observations 
-            obs = decision_steps.obs[0] # [num_agent, obs_dim]
-            action, act_logprob = self.batch_select_action(obs) #[num_agent, act_dim]
-            
-
-            for agent_ind in decision_steps:
-                # create a RolloutBuffer for any new agent 
-                if agent_ind not in self.agent_buffers.keys():
-                    self.agent_buffers[agent_ind] = RolloutBuffer()
-                    self.agent_buffers[agent_ind].clear()
-
-                index = decision_steps.agent_id_to_index[agent_ind]
-                obs = torch.tensor(obs, requires_grad=False).float().to(self.device)
-
-                # append the information corresponding to each agent
-                self.agent_buffers[agent_ind].rewards.append(decision_steps[agent_ind].reward)
-                self.agent_buffers[agent_ind].is_terminals.append(False)
-                self.agent_buffers[agent_ind].states.append(obs[index,:])
-                self.agent_buffers[agent_ind].actions.append(action[index,:])
-                self.agent_buffers[agent_ind].logprobs.append(act_logprob[index])
-
-                self.cumulated_reward +=  decision_steps[agent_ind].reward
-
-            action_tuple = ActionTuple()
-            action_tuple.add_continuous(action.detach().cpu().numpy())
-
-            env.set_actions(behavior_name, action_tuple)
-            env.step()
-            
-            if step % self.options["print_freq"] == 0:
-                num = 0
-                reward  = 0
-                if len(decision_steps) > 0:
-                    num += len(decision_steps)
-                    reward += np.sum(decision_steps.reward)
-                elif len(terminal_steps) > 0:
-                    num += len(terminal_steps)
-                    reward += np.sum(terminal_steps.reward)
-                else: reward = 'None'
-
-                print("step: {} \t cumulated steps: {} \t reward: {} ".format(step, cumulated_steps, np.mean(reward)))
-
-            curr_decay_action_action = (self.cumulated_training_steps+cumulated_steps) % self.options["action_std_decay_freq"]
-            # if continuous action space; then decay action std of ouput action distribution
-            if self.has_continuous_action_space and curr_decay_action_action < self.last_decay_action_check:
-                self.decay_action_std(self.options["action_std_decay_rate"], self.options["min_action_std"])
-            
-            self.last_decay_action_check = curr_decay_action_action
-
-            cumulated_steps += len(decision_steps)
-            step += 1
-
-        self.cumulated_training_steps += self.options["buffer_size"]
-
-        # take all our buffers and concatenated them 
-        self.buffer = RolloutBuffer()
-        for key in self.agent_buffers.keys():
-            self.buffer.extend(self.agent_buffers[key])
-            self.agent_buffers[key].clear()
 
     def batch_update(self):
 
@@ -513,7 +417,7 @@ class PPO:
 
     def GAE_Return(self, state_values, batch_buffer:RolloutBuffer):
 
-        returns = []
+        returns = torch.zeros(len(batch_buffer.rewards))
         gae = 0
 
         # Is_terminals indicates wether an episode is finished or not
@@ -526,9 +430,9 @@ class PPO:
             
             delta = batch_buffer.rewards[i] + self.gamma * values[i + 1] * masks[i] - values[i]
             gae = delta + self.gamma * self.lmbda * masks[i] * gae
-            returns.insert(0, (gae + values[i]))
+            returns[i] = gae + values[i]
 
-        returns = torch.tensor(returns).float()
+        # returns = torch.tensor(returns).float()
         adv = returns - values[:-1]
         adv = adv - adv.mean() / (adv.std() + 1e-7)
         return adv, returns

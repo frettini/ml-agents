@@ -54,7 +54,7 @@ class Discriminator(torch.nn.Module):
                               mid_activation=activation_dict[options["mid_activation_discrim"]],
                               last_activation=activation_dict[options["last_activation_discrim"]])
 
-        self.optimizer = torch.optim.Adam(self.discrim.parameters(), options["lr_discrim"])
+        self.optimizer = torch.optim.Adam(self.discrim.parameters(), options["lr_discrim"], weight_decay=0.0005)
 
         self.real_label = 1
         self.fake_label = -1
@@ -99,7 +99,7 @@ class Discriminator(torch.nn.Module):
         
         # get the classification of real input and compare to labels
         real_estimation = self.forward(real_input).squeeze()
-        loss_real = 0.5*self.criterion_gan(real_estimation,label)
+        loss_real = self.criterion_gan(real_estimation,label)
         
         # gradient penalty 
         discriminator_gradient =torch.autograd.grad(loss_real, self.discrim.parameters(), retain_graph=True, create_graph=True)
@@ -115,10 +115,10 @@ class Discriminator(torch.nn.Module):
         # do the same with the generator's poses
         label.fill_(self.fake_label)
         fake_estimation = self.forward(fake_input.float().detach()).squeeze()
-        loss_fake = 0.5*self.criterion_gan(fake_estimation, label)
+        loss_fake = self.criterion_gan(fake_estimation, label)
         loss_fake.backward()
         
-        self.cumul_d_loss += loss_real.detach() + loss_fake.detach() 
+        self.cumul_d_loss += loss_real.detach() + loss_fake.detach() + grad_norm.detach()
 
     def optimize(self, real_input, fake_input):
         """

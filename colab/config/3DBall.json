@@ -1,0 +1,26 @@
+{"batch_size"           : 250,      
+"buffer_size"           : 6000,       
+"max_training_steps"    : 150000,     
+"K_epochs"              : 30,
+"continuous_space"      : true,
+"normalize"             : false,
+
+"hidden_units_actor"    : 64,
+"num_layers_actor"      : 1,
+"hidden_units_critic"   : 64,
+"num_layers_critic"     : 1,
+
+"action_std"            : 0.6,       
+"action_std_decay_rate" : 0.05,
+"min_action_std"        : 0.1,
+"action_std_decay_freq" : 30000,
+
+"eps_clip"              : 0.2,
+"gamma"                 : 0.99,
+
+"lr_actor"              : 0.0003,
+"lr_critic"             : 0.001,
+"scheduler_gamma"       : 0.99,
+
+"print_freq"            : 100,
+"log_freq"              : 100}      

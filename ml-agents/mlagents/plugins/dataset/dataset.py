@@ -325,6 +325,68 @@ class Motion_Dataset(torch.utils.data.Dataset):
     def load_mean_var():
         pass
 
+class UnityMotionDataset(torch.utils.data.Dataset):
+
+    def __init__(self, input_path:str, skdata_sidechannel, frame_boundaries=None, device:str='cpu'):
+        options = get_options()
+        self.window_size = options['window_size']
+        torch.device(device)
+
+        self.skdata = SkeletonInfo(input_path)
+
+        input_files = []
+        for file in os.listdir(input_path):
+            if file.endswith('.txt'):
+                input_files.append(input_path + file)
+
+        init_rotations = torch.tensor(skdata_sidechannel.msg[:22*4]).float().reshape(22,4)
+        offsets = torch.tensor(skdata_sidechannel.msg[22*4:]).float().reshape(22,3)
+        self.skdata.offsets = offsets
+
+        rotations = []
+        positions = []
+
+        for file in input_files:
+
+            with open(file) as f:
+                lines = f.readlines()
+
+            n_lines = len(lines)
+            n_features = len(lines[0].split(','))
+
+            features = torch.zeros((n_lines,n_features)).float()
+
+            for i, line in enumerate(lines):
+                line = line
+                line_array = [float(f) for f in line.split(',')]
+                features[i] = torch.tensor(line_array).float()
+
+            features  = features.reshape(features.shape[0], self.skdata.num_joints, 7)
+
+            
+            temp_pos = features[:,:,:3]
+            temp_pos = temp_pos - temp_pos[:,0:1,:]
+
+            temp_rot = features[:,:,3:]
+            temp_rot[:,0,:] = torch.tensor([1.,0.,0.,0.]).float()
+
+            positions.append(temp_pos)
+            rotations.append(temp_rot)
+    
+        self.positions = torch.cat(positions, dim=0)
+        self.rotations = torch.cat(rotations, dim=0)
+
+    def __getitem__(self, index):
+        """
+        return positions and rotation (in that order)
+        """
+        positions = self.positions[index] 
+        rotations = self.rotations[index]
+        return positions, rotations
+
+    def __len__(self):
+        return self.positions.shape[0]
+
 
 class SkeletonInfo:
     def __init__(self, input_path, subsample=False, xyz = 'xyz'):
@@ -394,68 +456,37 @@ class SkeletonInfo:
         self.ee_length = torch.zeros(len(self.chain_indices)).float()
         for ind, chains in enumerate(self.chain_indices):
             self.ee_length[ind] = torch.sum(offset_norms[chains])
-
+        
     
 if __name__ == "__main__":
 
-    from mlagents.plugins.bvh_utils.visualize import skeleton_plot, two_skeleton_plot
-    from mlagents.plugins.bvh_utils import lafan_utils
+    import matplotlib.pyplot as plt
+    from mlagents.plugins.bvh_utils.visualize import skeletons_plot, motion_animation
+    from mlagents.plugins.bvh_utils import lafan_utils as utils
 
-    # skeleton information : topology and offsets 
-    file_path = "./data/LaFan/Train/walk1_subject1.bvh"
-    anim, names, frametime = BVH.load(file_path, need_quater = False)
-
-    num_joints = len(anim.parents)
-    edges = torch.zeros((num_joints-1, 2), dtype=int, requires_grad=False)
-
-    # generate edge list
-    count = 0
-    for i, parent in enumerate(anim.parents):
-        # check if parent is existent
-        if parent != -1:
-            edges[count, 0] = parent 
-            edges[count, 1] = i
-            count += 1
-
-    # generate skeleton offsets, shape [1,J,3]       
-    offsets = torch.tensor(np.tile(anim.offsets[np.newaxis,...],(2,16,1,1))).float()
-
-    input_path = './data/LaFan/Train/'
-    input_path = './data/LaFan/Train/'
-    # data = MotionData(input_path, recalculate_mean_var=False, normalize_data=False, device='cuda:0')
-    temporaldata = TemporalMotionData(input_path, recalculate_mean_var=False, normalize_data=False)
-    temporaldata_norm = TemporalMotionData(input_path, recalculate_mean_var=False, normalize_data=True)
-
-    # batch_size = 2
-    # some_motion = data[20]
-    randind = np.random.randint(0, len(temporaldata)-2)
-    motion = temporaldata[randind:randind+2]
-    motion_norm = temporaldata_norm[randind:randind+2]
-    # print(motion_norm[1,:,0])
-    motion_denorm = temporaldata_norm.denormalize(motion_norm)
-    # print(motion[1,:,0])
-    # print(motion[0,:,0] - motion_denorm[0,:,0])
-
-    
-    motion = motion.permute(0,2,1).reshape(2,16,-1,4)
-    motion_denorm = motion_denorm.permute(0,2,1).reshape(2,16,-1,4)
-    
-    # res has the shape [batch_size, (rotations+glob_pos+1)]
-    motion_rotation = motion[:,:,:-1,:]
-    motion_denorm_rotation = motion_denorm[:,:,:-1,:]
-    
-    # apply fk on generated pos, this will be the 'fake' data in the discriminator
-    _, real_pos = lafan_utils.quat_fk(motion_rotation,
-                                        offsets,
-                                        anim.parents)
-    _, real_pos_denorm = lafan_utils.quat_fk(motion_denorm_rotation,
-                                        offsets,
-                                        anim.parents)
-
-    limits = [[100,200],[500,600],[0,100]]
-    # skeleton_plot(real_pos[0,0,:,:].cpu().detach(), edges, 'b')
-    # skeleton_plot(real_pos_denorm[0,0,:,:].cpu().detach(), edges, 'b',limits=limits)
-    two_skeleton_plot(real_pos[0,0,:,:].cpu().detach(), real_pos[0,1,:,:].cpu().detach(),
-                    edges, edges, 'b', 'r' )
-
+    from mlagents.plugins.dataset.skeleton_side_channel import Skeleton_SideChannel 
+    from mlagents_envs.environment import UnityEnvironment
         
+    # Setup Unity Environment + sidechannel
+    skeleton_sidechannel = Skeleton_SideChannel()
+
+    try:
+        env.close()
+    except:
+        pass
+
+    print("Waiting for environment to boot")
+    # filename = None enables to communicate directly with the unity editor
+    env = UnityEnvironment(file_name=None, seed=1, side_channels=[skeleton_sidechannel])
+    env.reset()
+
+    input_path = "C:\\Users\\nicol\\Work\\Master\\dissertation\\ml-agents\\colab\\data\\"
+    motion_data = UnityMotionDataset(input_path, skeleton_sidechannel)
+        
+    print("motion_data loaded")
+    print("data length:", len(motion_data))
+
+    pos, rot = motion_data[10:20]
+
+    fig,ax = skeletons_plot([pos[0].cpu().detach()], [motion_data.skdata.edges], colors_list=['b'], limits=[[-1.,1.],[-1.,1.],[-1.,1.]], return_plot=True)
+    plt.plot()

@@ -8,11 +8,14 @@ from mlagents_envs.environment import ActionTuple
 from mlagents.plugins.ppo.PPO import PPO
 from mlagents.plugins.ppo.buffer import RolloutBuffer
 from mlagents.plugins.ppo.network import Discriminator
-from mlagents.plugins.dataset.dataset import TemporalMotionData, SkeletonInfo
+from mlagents.plugins.dataset.dataset import UnityMotionDataset, SkeletonInfo
 from mlagents.plugins.bvh_utils.lafan_utils import get_pos_info_from_raw, get_batch_velo2
+
+from mlagents_envs.timers import timed, hierarchical_timer
 
 import mlagents.plugins.utils.logger as log
 from mlagents.plugins.bvh_utils.visualize import skeletons_plot, motion_animation
+import mlagents.plugins.bvh_utils.lafan_utils as utils
 
 class AMPTainer():
     def __init__(self, env, options, motion_path,
@@ -44,7 +47,7 @@ class AMPTainer():
 
         # LOAD DATA FROM MOTION CAPTURE DATASET
         # Setup LaFan dataset and skeleton information
-        self.adv_dataset = TemporalMotionData(motion_path, recalculate_mean_var=True, normalize_data=True, xyz='xyz', rot_order=None)
+        self.adv_dataset = UnityMotionDataset(motion_path, side_channels["skeleton"])
         self.skdata : SkeletonInfo = self.adv_dataset.skdata
         self.scale = 100
 
@@ -200,7 +203,8 @@ class AMPTainer():
 
     def compute_style_reward(self):
         """
-
+        Compute the style reward which is obtained from running the discriminator using trajectory data. 
+        The resulting reward is added to the goal reward to be later used in the policy update. 
         """
         # get pair of observations from the buffer and concatenate them 
         batch_size = self.options["batch_size_discrim"]
@@ -248,7 +252,7 @@ class AMPTainer():
 
     def discrim_update(self):
         """
-        
+        Update the discriminator by getting data from the adversarial dataset and trajectory buffer. 
         """
         batch_size = self.options["batch_size_discrim"] 
         window_size = self.options["window_size"]
@@ -256,12 +260,15 @@ class AMPTainer():
 
         # for loop or not?
         for i in range(self.options["K_discrim"]):
-            # sample batch size from the motion dataset
-            n_wind = (batch_size+1)//(window_size//2) + 1 # +1 to account for next state
-            # rand_ind = np.random.randint(0,len(self.adv_dataset) - n_wind)
-            rand_ind = np.random.randint(12,162- n_wind) # TODO: remove hardcoded values
-            adv_motion = self.adv_dataset[rand_ind:rand_ind+n_wind]
 
+            # sample batch size from the motion dataset
+            #rand_ind = np.random.randint(80, 1300 - (batch_size+1)) # TODO: remove hardcoded values
+            # adv_motion = self.adv_dataset[rand_ind:rand_ind+batch_size+1]
+
+            rand_ind = np.random.randint(80,900 - 1, batch_size)
+            adv_motion_curr = self.adv_dataset[rand_ind]
+            adv_motion_next = self.adv_dataset[rand_ind+1]
+            adv_motion = (adv_motion_curr, adv_motion_next)
 
             # extract the motion information, make sure its local, and compute the forward kinematics
             # MAKE SURE TO APPLY THE ROTATION OFFSET
@@ -289,6 +296,9 @@ class AMPTainer():
         """
         Extract rotation, position and velocity of current and next state and 
         shape it to as an input for the discriminator
+
+        :params batch: [batch_size+1, obs_dim] tensor of features collected in the trajectory
+        :returns discrim_input: [batch_size, discrim_input_size] tensor used in the discriminator as "fake data" 
         """
         
         batch_size = self.options["batch_size_discrim"]
@@ -298,78 +308,96 @@ class AMPTainer():
         joint_features = batch[:,:-6]
         joint_features = joint_features.reshape(batch_size+1,-1, self.features_per_joints)
 
-        u_velocity = joint_features[:,:,:3]
-        angular_vel = joint_features[:,:,3:6]
-        positions = joint_features[:,:,6:9]
-        rotations = joint_features[:,:,9:]
+        # u_velocity = joint_features[:,:,:3].clone()
+        # angular_vel = joint_features[:,:,3:6].clone()
+        positions = joint_features[:,:,6:9].clone()
+        rotations = joint_features[:,:,9:].clone()
 
         local_positions = positions[:] - positions[:,0:1,:]
-        
-        velocity = torch.zeros_like(positions)
-    
-        # get velocity by doing central difference
-        for i in range(positions.shape[0]-2):
-            # print(((positions[i+2] - positions[i])/(frametime*2)).shape)
-            velocity[i+1, ...] = (positions[i+2] - positions[i])/(self.skdata.frametime*2)
 
-        # boundary cases 
-        velocity[0] = (positions[1] - positions[0])/self.skdata.frametime
-        velocity[-1] = (positions[-1] - positions[-2])/self.skdata.frametime
+        temp = rotations[:,:,3].clone()
+        temp2 = rotations[:,:,:3].clone()
+        rotations[:,:,1:] = temp2
+        rotations[:,:,0] = temp
+        rotations[:,0,:] = torch.tensor([1.,0.,0.,0.]).float()
 
-        velocity += u_velocity[:,0:1,:]
-        #velocity = get_batch_velo2(local_positions, self.skdata.frametime)
-        
-        # skeletons_plot([local_positions.cpu().detach()], [self.skdata.edges], ['g'], limits=limits, return_plot=False)
-
-        # limits = [[-1,1],[-1,1],[-1,1]]
-        # pos_from_vel = torch.zeros_like(local_positions)
-        # pos_from_vel[0] = local_positions[0]
-        # for i in range(1,pos_from_vel.shape[0]):
-        #     if torch.abs(velocity.sum(dim=[1,2])[i]) < 2:
-        #         pos_from_vel[i,:] = local_positions[i]
-        #     else:
-        #         local_vel= velocity -velocity[:,0:1]
-        #         pos_from_vel[i,:] = pos_from_vel[i-1] + local_vel[i] * self.skdata.frametime
-        # anim = motion_animation([pos_from_vel.cpu().detach(), local_positions.cpu().detach()], [self.skdata.edges, self.skdata.edges], ['g', 'b'], limits)
-
-        # HTML(anim.to_jshtml())
+        # velocity and angular velocity calculation from positions and rotations
+        velocity = utils.get_velocity(local_positions, 0.02*5)
+        # angular_velocity
 
         # stack them vertically in one big vector 
-        feature_stack = torch.cat((velocity.reshape(batch_size+1,-1),local_positions.reshape(batch_size+1,-1)), dim=1)
+        feature_stack = torch.cat((local_positions.reshape(batch_size+1,-1),rotations.reshape(batch_size+1,-1)), dim=1)
         # stack the current state and next state in a single buffer
         discrim_input = torch.cat((feature_stack[:-1,:], feature_stack[1:,:]), dim=1)
 
         return discrim_input
 
     def adversarial_to_discrim(self, batch, batch_size):
+        """
+        format the adversarial data to be usable by the discriminator.
 
-        batch = self.adv_dataset.denormalize(batch)
+        :params batch: tuple containing the current frames batch and next frame batch. 
+        Those batches are themselves tuples containing a local positions and rotation tensor.  
+        :params batch_size: int specifying the size of the discriminator batch 
+        :returns discrim_input: [batch_size, discrim_input_size] tensor of "real data" 
+        """
+        curr_batch, next_batch = batch
         
-        adv_offsets = self.skdata.offsets.clone()/self.scale
-        rotation_offset = torch.tensor([  0., 0., 1., 0. ])#Quaternions.from_euler(np.array([0,0,0]), 'xyz').qs)
-        adv_data = get_pos_info_from_raw(batch, self.skdata, adv_offsets, self.options, norm_rot=False, rotation_offset=rotation_offset)
-        adv_pos_global, adv_pos_local, adv_hips_rot, adv_hips_velo, adv_vel, adv_rot_local = adv_data
-
-        # adv_pos_local = adv_pos_local.reshape(-1, adv_pos_local.shape[-2], adv_pos_local.shape[-1])
-        adv_pos_local = self.adv_dataset.reconstruct_from_windows(adv_pos_local)
-
-        adv_pos_local = adv_pos_local.reshape(adv_pos_local.shape[0], -1)
-        adv_pos_local = adv_pos_local[:batch_size+1]
-
-        adv_vel[:,:,1:,:] += adv_vel[:,:,0:1,:] 
-        
-        # instead of reshaping it that way, we want to disentangle the windows
-        adv_vel = self.adv_dataset.reconstruct_from_windows(adv_vel)
-
-        adv_vel = adv_vel.reshape(adv_vel.shape[0], -1)
-        adv_vel = adv_vel[:batch_size+1]
-
-        # adv_vel = adv_vel[:batch_size+1]
-        # adv_rot_local = adv_rot_local[:batch_size+1]
-
         # velocity, position, and rotation
-        feature_stack = torch.cat((adv_vel, adv_pos_local), dim=1)
+        curr_feature_stack = torch.cat((curr_batch[0].reshape(batch_size, -1), curr_batch[1].reshape(batch_size,-1)), dim=1)
+        next_feature_stack = torch.cat((next_batch[0].reshape(batch_size, -1), next_batch[1].reshape(batch_size,-1)), dim=1)
+
         # stack the current state and next state in a single buffer
-        discrim_input = torch.cat((feature_stack[:-1,:], feature_stack[1:,:]), dim=1)
+        discrim_input = torch.cat((curr_feature_stack, next_feature_stack), dim=1)
 
         return discrim_input
+
+
+# limits = [[-1,1],[-1,1],[-1,1]]
+# skeletons_plot([local_positions.cpu().detach()], [self.skdata.edges], ['g'], limits=limits, return_plot=False)
+
+# offsets = self.skdata.offsets.clone()
+# offsets = offsets.reshape(1,22,3)
+# offsets = offsets.repeat(rotations.shape[0],1,1)
+
+# _, pos_from_rot = utils.quat_fk(rotations, offsets, self.skdata.parents)
+# skeletons_plot([local_positions[0].cpu().detach(), pos_from_rot[0].cpu().detach()], [self.skdata.edges,self.skdata.edges], ['g', 'b'], limits=limits, return_plot=False)
+
+# anim = motion_animation([pos_from_rot[0].cpu().detach(), local_positions[0].cpu().detach()], [self.skdata.edges, self.skdata.edges], ['g', 'b'], limits)
+# HTML(anim.to_jshtml())
+
+
+# # get velocity by doing central difference
+# for i in range(positions.shape[0]-2):
+#     # print(((positions[i+2] - positions[i])/(frametime*2)).shape)
+#     velocity[i+1, ...] = (positions[i+2] - positions[i])/(self.skdata.frametime*2)
+
+# # boundary cases 
+# velocity[0] = (positions[1] - positions[0])/self.skdata.frametime
+# velocity[-1] = (positions[-1] - positions[-2])/self.skdata.frametime
+
+# velocity += u_velocity[:,0:1,:]
+#velocity = get_batch_velo2(local_positions, self.skdata.frametime)
+
+
+# adv_offsets = self.skdata.offsets.clone()/self.scale
+# rotation_offset = torch.tensor([  0., 0., 1., 0. ])#Quaternions.from_euler(np.array([0,0,0]), 'xyz').qs)
+# adv_data = get_pos_info_from_raw(batch, self.skdata, adv_offsets, self.options, norm_rot=False, rotation_offset=rotation_offset)
+# adv_pos_global, adv_pos_local, adv_hips_rot, adv_hips_velo, adv_vel, adv_rot_local = adv_data
+
+# adv_pos_local = adv_pos_local.reshape(-1, adv_pos_local.shape[-2], adv_pos_local.shape[-1])
+# adv_pos_local = self.adv_dataset.reconstruct_from_windows(adv_pos_local)
+
+# adv_pos_local = adv_pos_local.reshape(adv_pos_local.shape[0], -1)
+# adv_pos_local = adv_pos_local[:batch_size+1]
+
+# adv_vel[:,:,1:,:] += adv_vel[:,:,0:1,:] 
+
+# instead of reshaping it that way, we want to disentangle the windows
+# adv_vel = self.adv_dataset.reconstruct_from_windows(adv_vel)
+
+# adv_vel = adv_vel.reshape(adv_vel.shape[0], -1)
+# adv_vel = adv_vel[:batch_size+1]
+
+# adv_vel = adv_vel[:batch_size+1]
+# adv_rot_local = adv_rot_local[:batch_size+1]

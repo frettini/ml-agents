@@ -40,7 +40,7 @@ if __name__ == "__main__":
     # initialize torch to be cpu only
     # usually faster for reinforcement learning problems
     set_torch_config(TorchSettings(device='cpu'))
-    options = get_options('LaFanWalker.json')
+    options = get_options('/config/LaFanWalker.json')
     print("Default device : ", default_device())
 
     # filename = None enables to communicate directly with the unity editor
@@ -59,7 +59,7 @@ if __name__ == "__main__":
 
     # initialize model save path and logging path 
     model_path = "/models/"
-    log_path = "/runs/line_AMP/only_discrim/"
+    log_path = "/runs/line_AMP/strenghtback/"
     model_dir, log_dir = paths_setup(model_path, log_path, list(env.behavior_specs)[0])
     log.init(log_dir)
 
@@ -67,7 +67,7 @@ if __name__ == "__main__":
     log.writer.add_text("Hyperparameters", str(options))
 
     # initialize the trainer, which in turn initializes the policies, discrim etc.. 
-    motion_path = "C:/Users/nicol/Work/Master/dissertation/ml-agents/ml-agents/mlagents/plugins/skeleton_aware_op/data/LaFan/Real_Data/"
+    motion_path = "C:/Users/nicol/Work/Master/dissertation/ml-agents/colab/data/"
     trainer = AMPTainer(env,options,motion_path,side_channels, model_dir)
     
     # start the training loop
