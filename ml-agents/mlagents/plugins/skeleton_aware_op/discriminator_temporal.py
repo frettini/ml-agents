@@ -119,3 +119,17 @@ class Discriminator(torch.nn.Module):
 
         return loss_real, loss_fake, loss_discrim
         
+    def G_loss(self, fake_pos):
+        """
+        Compute the least square loss for the generator.
+        Try to maximize log(D(G(x)))
+        """
+        curr_batch_size = fake_pos.shape[0]
+
+        # Adversial Loss, use real labels to maximize log(D(G(x))) instead of log(1-D(G(x)))
+        label = torch.full((curr_batch_size,), self.real_label, dtype=torch.float, device=device)
+        label.fill_(self.real_label)
+        output = self.forward(fake_pos.float()).view(-1)
+        loss_adv = self.criterion_gan(output,label)
+
+        return loss_adv
