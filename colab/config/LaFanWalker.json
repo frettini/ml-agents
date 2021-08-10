@@ -1,8 +1,8 @@
 {
 "comment1"              : "RL OPTIONS",
-"batch_size"            : 50,      
-"batch_size_discrim"    : 50,
-"buffer_size"           : 200,       
+"batch_size"            : 256,      
+"batch_size_discrim"    : 256,
+"buffer_size"           : 4096,       
 "max_training_steps"    : 10000000,     
 "K_epochs"              : 10,
 "continuous_space"      : true,
@@ -22,7 +22,7 @@
 "hidden_units_discrim"   : [1024,512],
 "num_layers_discrim"     : 2,
 "mid_activation_discrim" : "leakyrelu",
-"last_activation_discrim": "identity",
+"last_activation_discrim": "tanh",
 
 "goal_factor"           : 0,
 "style_factor"          : 2,
