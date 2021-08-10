@@ -22,7 +22,7 @@
 "hidden_units_discrim"   : [1024,512],
 "num_layers_discrim"     : 2,
 "mid_activation_discrim" : "leakyrelu",
-"last_activation_discrim": "tanh",
+"last_activation_discrim": "identity",
 
 "goal_factor"           : 0,
 "style_factor"          : 2,
@@ -61,5 +61,10 @@
 "num_layers_ae"         : 2,       
 "num_neighbours"        : 2,       
 "window_size"           : 16,
-"drop_percentage"       : null
+"drop_percentage"       : null,
+
+"sk_ee_factor"          : 1000,
+"sk_adv_factor"         : 100,
+"sk_rot_factor"         : 100,
+"sk_root_velo_factor"   : 1
 }      

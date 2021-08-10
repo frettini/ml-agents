@@ -241,12 +241,18 @@ class UnityMotionDataset(torch.utils.data.Dataset):
         # calculate the statistics
         self.positions_mean = torch.mean(self.positions, dim=0)
         self.positions_var = torch.var(self.positions, dim=0)
+        self.positions_var = torch.where( self.positions_var < 1e-5, 1., self.positions_var)
+        self.positions_var = self.positions_var ** (1/2)
 
         self.rotations_mean = torch.mean(self.rotations, dim=0)
         self.rotations_var = torch.var(self.rotations, dim=0)
+        self.rotations_var = torch.where( self.rotations_var < 1e-5, 1., self.rotations_var)
+        self.rotations_var = self.rotations_var ** (1/2)
 
         self.velocity_mean = torch.mean(self.velocity, dim=0)
         self.velocity_var = torch.var(self.velocity, dim=0)
+        self.velocity_var = torch.where( self.velocity_var < 1e-5, 1., self.velocity_var)
+        self.velocity_var = self.velocity_var ** (1/2)
 
     def __getitem__(self, index):
         """
