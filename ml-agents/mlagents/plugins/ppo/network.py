@@ -1,4 +1,5 @@
 from mlagents.torch_utils import torch, default_device
+from mlagents.plugins.ppo.running_mean import RunningMeanStd
 import mlagents.plugins.utils.logger as log
 
 # dictionary of various activation function that are specified in the options
@@ -66,6 +67,10 @@ class Discriminator(torch.nn.Module):
 
         self.criterion_gan = torch.nn.MSELoss()
 
+        self.running_mean_std_real = RunningMeanStd(shape=options["input_dim_discrim"])
+        self.running_mean_std_fake = RunningMeanStd(shape=options["input_dim_discrim"])
+
+
     def forward(self, input):
         output = self.discrim(input)
         return torch.sigmoid(output)
@@ -78,6 +83,10 @@ class Discriminator(torch.nn.Module):
         :params input: 2D tensor [batch_size, input_dim] data coming from the simulation
         :returns reward: the reward for being able to fool the discriminator
         """
+
+        self.running_mean_std_fake.update(input)
+        input = (input - self.running_mean_std_fake.mean)/self.running_mean_std_fake.var
+
         # reward from discriminator :
         temp = 1-0.25*(self.forward(input)-1)**2
         reward = torch.maximum(temp, torch.zeros_like(temp))
@@ -94,6 +103,14 @@ class Discriminator(torch.nn.Module):
         
         :returns d_loss: The discriminator output
         """
+
+        # normalize input 
+        self.running_mean_std_real.update(real_input)
+        self.running_mean_std_fake.update(fake_input)
+        fake_input = (fake_input - self.running_mean_std_real.mean)/self.running_mean_std_real.var
+        fake_input = (fake_input - self.running_mean_std_fake.mean)/self.running_mean_std_fake.var
+
+        # generate label vector which contains 1 or -1 for LSGAN
         curr_batch_size = real_input.shape[0]
         label = torch.full((curr_batch_size,), self.real_label, dtype=torch.float, device=default_device())
         
