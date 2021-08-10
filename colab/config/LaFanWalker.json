@@ -18,7 +18,7 @@
 "mid_activation_critic" : "relu",
 "last_activation_critic": "identity",
 
-"input_dim_discrim"      : 308,
+"input_dim_discrim"      : 440,
 "hidden_units_discrim"   : [1024,512],
 "num_layers_discrim"     : 2,
 "mid_activation_discrim" : "leakyrelu",
@@ -30,8 +30,8 @@
 "K_discrim"             : 1,
 
 "action_std"            : 0.8,       
-"action_std_decay_rate" : 0.005,
-"min_action_std"        : 0.3,
+"action_std_decay_rate" : 0.003,
+"min_action_std"        : 0.2,
 "action_std_decay_freq" : 20000,
 
 "eps_clip"              : 0.2,
@@ -52,8 +52,12 @@
 "comment2"              : "SKELETON AWARE OPTIONS",
 "sk_K_epochs"           : 100,
 "sk_batch_size"         : 4,
-"kernel_size"           : 5,      
 "channel_base"          : 4,       
+
+"sk_g_lr"               : 0.0002,
+"sk_d_lr"               : 0.0002,
+
+"kernel_size"           : 5,      
 "num_layers_ae"         : 2,       
 "num_neighbours"        : 2,       
 "window_size"           : 16,

@@ -36,10 +36,6 @@ class AMPTainer():
 
         # extract initial skeleton information from side_channel  
         # TODO : remove hardcode 22 joints      
-        init_info = side_channels["skeleton"].get_info()
-        self.unity_init_rotations = torch.tensor(init_info[:22*4]).float().reshape(22,4)
-        self.unity_init_positions = torch.tensor(init_info[22*4:]).float().reshape(22,3)
-
         # TODO : ensure that the frame rate of simulation is the same as the one from the adversarial dataset
 
         # INIT PPO AGENT
@@ -322,12 +318,12 @@ class AMPTainer():
         rotations[:,:,0] = temp
         rotations[:,0,:] = torch.tensor([1.,0.,0.,0.]).float()
 
-        # velocity and angular velocity calculation from positions and rotations
-        velocity = utils.get_velocity(local_positions, 0.02*5)
-        # angular_velocity
+        # velocity and angular velocity calculation from positions and rotations, this is okay because it is sequential
+        velocity = utils.get_velocity(local_positions, self.skdata.frametime)
 
         # stack them vertically in one big vector 
-        feature_stack = torch.cat((local_positions.reshape(batch_size+1,-1),rotations.reshape(batch_size+1,-1)), dim=1)
+        # feature_stack = torch.cat((local_positions.reshape(batch_size+1,-1), rotations.reshape(batch_size+1,-1)), dim=1)
+        feature_stack = torch.cat((local_positions.reshape(batch_size+1,-1), rotations.reshape(batch_size+1,-1), velocity.reshape(batch_size+1,-1)), dim=1)
         # stack the current state and next state in a single buffer
         discrim_input = torch.cat((feature_stack[:-1,:], feature_stack[1:,:]), dim=1)
 
@@ -345,8 +341,10 @@ class AMPTainer():
         curr_batch, next_batch = batch
         
         # velocity, position, and rotation
-        curr_feature_stack = torch.cat((curr_batch[0].reshape(batch_size, -1), curr_batch[1].reshape(batch_size,-1)), dim=1)
-        next_feature_stack = torch.cat((next_batch[0].reshape(batch_size, -1), next_batch[1].reshape(batch_size,-1)), dim=1)
+        # curr_feature_stack = torch.cat((curr_batch[0].reshape(batch_size, -1), curr_batch[1].reshape(batch_size,-1)), dim=1)
+        # next_feature_stack = torch.cat((next_batch[0].reshape(batch_size, -1), next_batch[1].reshape(batch_size,-1)), dim=1)
+        curr_feature_stack = torch.cat((curr_batch[0].reshape(batch_size, -1), curr_batch[1].reshape(batch_size,-1), curr_batch[2].reshape(batch_size,-1)), dim=1)
+        next_feature_stack = torch.cat((next_batch[0].reshape(batch_size, -1), next_batch[1].reshape(batch_size,-1), next_batch[2].reshape(batch_size,-1)), dim=1)
 
         # stack the current state and next state in a single buffer
         discrim_input = torch.cat((curr_feature_stack, next_feature_stack), dim=1)

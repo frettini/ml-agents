@@ -324,6 +324,7 @@ def get_velocity(positions, frametime):
 
     return velocity
 
+
 def get_batch_velo(real_pos, fake_pos, frametime):
     """
     return a tensor same size that the input with the velocity
@@ -346,6 +347,7 @@ def get_batch_velo(real_pos, fake_pos, frametime):
 
     return real_joint_vel, fake_joint_vel
 
+
 def get_batch_velo2(input_pos, frametime):
     """
     return a tensor same size that the input with the velocity
@@ -361,6 +363,17 @@ def get_batch_velo2(input_pos, frametime):
         input_joint_vel[ind] = get_velocity(input_pos[ind], frametime)
 
     return input_joint_vel
+
+
+def two_frame_velocity(positions1, positions2, frametime):
+    """
+    Calculate the angular velocity between two frames 
+    :params positions: [n_frames, n_joints, 3] tensor first frame of the pair 
+    :params positions2: [n_frames, n_joints, 3] tensor second frame of the pair 
+    """
+    # get velocity by doing forward difference
+    return (positions2 - positions1)/(frametime)
+
 
 def get_global_position_from_velocity(init_position, velocity, frametime, positions = None):
     """
@@ -386,8 +399,23 @@ def get_global_position_from_velocity(init_position, velocity, frametime, positi
     
     return glob_positions
 
+
 def get_angular_velocity(rotations, frametime):
+    """
+    Calculates the angular velocity given a sequence of quaternions
+    :params rotations: [n_frames, n_joints, 4] tensor of quaternions for each joint rotation
+    """
     pass
+
+
+def two_frame_angular_velocity(rotations1, rotations2):
+    """
+    Calculate the angular velocity between two frames 
+    :params rotations1: [n_frames, n_joints, 4] tensor first frame of the pair 
+    :params rotations2: [n_frames, n_joints, 4] tensor second frame of the pair 
+    """
+    return quat_mul(rotations2, quat_inv(rotations1))
+
 
 def build_edges(parents):
     """
@@ -406,6 +434,7 @@ def build_edges(parents):
             edges[count, 1] = i
             count += 1
     return edges
+
 
 def build_chain_list(edges):
     """
@@ -446,6 +475,7 @@ def build_chain_list(edges):
 
     return chain_indices
     
+
 def get_height(parents, offsets):
     """
     Get the height of a character calculated by finding the highest and lowest point
@@ -471,7 +501,8 @@ def get_height(parents, offsets):
 
     return high - low
 
-def get_pos_info_from_raw(input_data : torch.Tensor, skdata, offsets, options, norm_rot=False, rotation_offset=None):
+
+def get_pos_info_from_raw(input_data : torch.Tensor, skdata, options, norm_rot=False, rotation_offset=None):
     """
     :params input data: [batch_size, (rotations+glob_pos+1), window_size] \n
     :params skdata: SkeletonInfo object containing edge, and more information about skeleton 
@@ -490,11 +521,11 @@ def get_pos_info_from_raw(input_data : torch.Tensor, skdata, offsets, options, n
     curr_batch_size = input_data.shape[0]
 
     # transform res shape from [batch_size, (rotations+glob_pos+1), window_size]
-    # to [batch_size, window_size, n_joints,4]
+    # to [batch_size, window_size, n_joints, n_channel]
     input_data = input_data.permute(0,2,1).reshape(curr_batch_size, options['window_size'], -1, options['channel_base'])
 
     # and offsets to [batch_size, window_size, n_joints, 3]
-    offsets = offsets.reshape(1, 1, skdata.offsets.shape[0], skdata.offsets.shape[1])
+    offsets = skdata.offsets.reshape(1, 1, skdata.offsets.shape[0], skdata.offsets.shape[1])
     offsets = offsets.repeat(curr_batch_size, options['window_size'], 1, 1)
 
     # extract rotation and velocity from raw
