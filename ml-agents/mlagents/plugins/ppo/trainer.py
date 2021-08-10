@@ -231,7 +231,7 @@ class AMPTainer():
             discrim_input  = self.buffer_to_discrim(buffer_batch)
 
             # call the discriminator G_reward
-            style_reward = self.discrim(discrim_input)
+            style_reward = self.discrim.G_reward(discrim_input)
             style_reward = torch.squeeze(style_reward)
 
             # add the reward to the buffer.reward (remember to add the factors)
