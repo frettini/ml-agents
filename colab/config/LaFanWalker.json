@@ -1,8 +1,8 @@
 {
 "comment1"              : "RL OPTIONS",
-"batch_size"            : 256,      
-"batch_size_discrim"    : 256,
-"buffer_size"           : 4096,       
+"batch_size"            : 50,      
+"batch_size_discrim"    : 50,
+"buffer_size"           : 200,       
 "max_training_steps"    : 10000000,     
 "K_epochs"              : 10,
 "continuous_space"      : true,

@@ -208,6 +208,9 @@ class UnityMotionDataset(torch.utils.data.Dataset):
 
         rotations = []
         positions = []
+        velocity = []
+
+        n_features_per_joints = 10
 
         # open and parse the csv files
         for file in input_files:
@@ -223,35 +226,37 @@ class UnityMotionDataset(torch.utils.data.Dataset):
                 line = line
                 line_array = [float(f) for f in line.split(',')]
                 features[i] = torch.tensor(line_array).float()
-            features  = features.reshape(features.shape[0], self.skdata.num_joints, 7)
+            features  = features.reshape(features.shape[0], self.skdata.num_joints, n_features_per_joints)
 
             # extract and process features: remove position and hip rotation offset            
             temp_pos = features[:,:,:3]
             temp_pos = temp_pos - temp_pos[:,0:1,:]
-            temp_rot = features[:,:,3:]
+            temp_rot = features[:,:,3:7]
             temp_rot[:,0,:] = torch.tensor([1.,0.,0.,0.]).float()
+            temp_vel = features[:,:,7:]
 
             positions.append(temp_pos)
             rotations.append(temp_rot)
+            velocity.append(temp_vel)
     
         self.positions = torch.cat(positions, dim=0)
         self.rotations = torch.cat(rotations, dim=0)
-        self.velocity  = utils.get_velocity(self.positions, self.skdata.frametime)
+        self.velocity  = torch.cat(velocity,  dim=0) #utils.get_velocity(self.positions, self.skdata.frametime)
 
         # calculate the statistics
         self.positions_mean = torch.mean(self.positions, dim=0)
         self.positions_var = torch.var(self.positions, dim=0)
-        self.positions_var = torch.where( self.positions_var < 1e-5, 1., self.positions_var)
+        self.positions_var = torch.where( self.positions_var.double() < 1e-5, 1., self.positions_var.double()).float()
         self.positions_var = self.positions_var ** (1/2)
 
         self.rotations_mean = torch.mean(self.rotations, dim=0)
         self.rotations_var = torch.var(self.rotations, dim=0)
-        self.rotations_var = torch.where( self.rotations_var < 1e-5, 1., self.rotations_var)
+        self.rotations_var = torch.where( self.rotations_var.double() < 1e-5, 1., self.rotations_var.double()).float()
         self.rotations_var = self.rotations_var ** (1/2)
 
         self.velocity_mean = torch.mean(self.velocity, dim=0)
         self.velocity_var = torch.var(self.velocity, dim=0)
-        self.velocity_var = torch.where( self.velocity_var < 1e-5, 1., self.velocity_var)
+        self.velocity_var = torch.where( self.velocity_var.double() < 1e-5, 1., self.velocity_var.double()).float()
         self.velocity_var = self.velocity_var ** (1/2)
 
     def __getitem__(self, index):
