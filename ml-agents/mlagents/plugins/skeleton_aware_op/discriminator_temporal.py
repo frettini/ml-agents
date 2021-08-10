@@ -93,7 +93,6 @@ class Discriminator(torch.nn.Module):
             input = self.compress(input)
         return torch.sigmoid(input).squeeze()
 
-
     def D_loss(self, real_pos, fake_pos, isTest):
 
         curr_batch_size = real_pos.shape[0]

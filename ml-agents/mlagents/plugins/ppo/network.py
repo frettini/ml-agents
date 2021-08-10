@@ -73,7 +73,7 @@ class Discriminator(torch.nn.Module):
 
     def forward(self, input):
         output = self.discrim(input)
-        return output
+        return torch.sigmoid(output)
 
     def G_reward(self, input):
         """
