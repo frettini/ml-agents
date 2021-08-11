@@ -1,13 +1,13 @@
 {
 "comment1"              : "RL OPTIONS",
-"batch_size"            : 256,      
-"batch_size_discrim"    : 256,
-"buffer_size"           : 4096,       
+"batch_size"            : 50,      
+"batch_size_discrim"    : 50,
+"buffer_size"           : 130,       
 "max_training_steps"    : 10000000,     
 "K_epochs"              : 10,
 "continuous_space"      : true,
 "normalize"             : true,
-"buffer_max_size"       : 4000,
+"buffer_max_size"       : 130,
 
 "hidden_units_actor"    : [1024,512],
 "num_layers_actor"      : 2,
@@ -48,7 +48,7 @@
 
 "print_freq"            : 200,
 "log_freq"              : 200,
-"save_freq"             : 20,
+"save_freq"             : 5,
 
 
 "comment2"              : "SKELETON AWARE OPTIONS",

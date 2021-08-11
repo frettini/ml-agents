@@ -1,15 +1,11 @@
-import skeleton_temporal
-from skeleton_temporal import SkeletonConv, SkeletonPool
+from mlagents.plugins.skeleton_aware_op.skeleton_temporal import SkeletonConv, SkeletonPool
 from mlagents.torch_utils import torch, default_device
-from options import get_options
 
 
 class Discriminator(torch.nn.Module):
-    def __init__(self, topology, real_label = 1, fake_label = 0, criterion_gan = None):
+    def __init__(self, topology, options, real_label = 1, fake_label = 0, criterion_gan = None):
 
         super(Discriminator, self).__init__()
-
-        options = get_options()
 
         self.topologies = [topology]
         self.channel_base = [3] # work on position?

@@ -32,16 +32,16 @@ class Sk_Trainer():
         self.adv_limits = None
 
         # Initialize the main functions
-        self.discriminator = Discriminator(self.skdata_adv.edges).to(self.device)
+        self.discriminator = Discriminator(self.skdata_adv.edges, options).to(self.device)
 
         # Retargetter initialization
-        self.encoder_sim = Encoder(self.skdata_input.edges)
+        self.encoder_sim = Encoder(self.skdata_input.edges, options)
         # use the initialization of encoder_data to get the correct pooling lists
-        self.encoder_data = Encoder(self.skdata_adv.edges) 
-        self.decoder_data = Decoder(self.encoder_data)
+        self.encoder_data = Encoder(self.skdata_adv.edges, options) 
+        self.decoder_data = Decoder(self.encoder_data, options)
 
-        self.static_encoder_sim = StaticEncoder(self.skdata_input.edges).to(self.device)
-        self.static_encoder_data = StaticEncoder(self.skdata_adv.edges).to(self.device)
+        self.static_encoder_sim = StaticEncoder(self.skdata_input.edges, options).to(self.device)
+        self.static_encoder_data = StaticEncoder(self.skdata_adv.edges, options).to(self.device)
 
         # Optimizers concatenate parameters used for pose generation
         gen_parameters = list(self.retargetter.encoder_sim.parameters()) + list(self.retargetter.decoder_data.parameters()) \
@@ -142,7 +142,7 @@ class Sk_Trainer():
 
         return res
 
-    def update_generator(self, input_motion, output_motion):
+    def update_generator(self, input_data, output_data):
         """
         Compute the full generator loss (adv and other) and its gradients and apply them 
         to the autoencoder and static encoders.
@@ -157,10 +157,13 @@ class Sk_Trainer():
         self.static_encoder_sim.zero_grad()
         self.static_encoder_data.zero_grad()
 
-        curr_batch_size = input_motion.shape[0]
+        input_pos, input_pos_local, input_root_rotation, input_glob_velo, input_vel = input_data
+        output_pos, output_pos_local, output_root_rotation, output_glob_velo, output_vel = output_data
+
+        curr_batch_size = input_pos.shape[0]
         
         # Adversial Loss, use real labels to maximize log(D(G(x))) instead of log(1-D(G(x)))
-        loss_adv = self.discriminator.G_loss(output_motion)
+        loss_adv = self.discriminator.G_loss(output_pos)
 
         # Gobal, Velocity and End Effector Losses
         loss_rot = self.criterion_global_rotation(output_root_rotation, input_root_rotation)
@@ -168,8 +171,8 @@ class Sk_Trainer():
         # Get the loss that tries to match the total velocity of every corresponding chain        
         # loss_chain_velo = calc_chain_velo_loss(real_vel, fake_vel, chain_indices, 
         #                                        criterion_velo, normalize_velo = False)
-        loss_glob_velo = self.criterion_velo(fake_glob_velo/skdata_data.height, input_glob_velo/skdata_sim.height)
-        loss_ee = self.calc_ee_loss(input_vel, input_pos_local, fake_vel, fake_pos_local, self.criterion_ee)
+        loss_glob_velo = self.criterion_velo(output_glob_velo/self.skdata_adv.height, input_glob_velo/self.skdata_input.height)
+        loss_ee = self.calc_ee_loss(input_vel, input_pos_local, output_vel, output_pos_local, self.criterion_ee)
         
 
         # combine all the losses together

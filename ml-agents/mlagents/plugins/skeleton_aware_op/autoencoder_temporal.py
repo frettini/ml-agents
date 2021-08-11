@@ -1,14 +1,12 @@
 from mlagents.torch_utils import torch, default_device
-from options import get_options
-from skeleton_temporal import SkeletonConv, SkeletonPool, SkeletonUnpool, SkeletonLinear, find_neighbor
+from mlagents.plugins.skeleton_aware_op.skeleton_temporal import SkeletonConv, SkeletonPool, SkeletonUnpool, SkeletonLinear, find_neighbor
 import numpy as np
 
 
 
 class Encoder(torch.nn.Module):
-    def __init__(self, topology):
+    def __init__(self, topology, options):
         super(Encoder, self).__init__()
-        options = get_options()
 
         self.topologies = [topology]
 
@@ -83,10 +81,8 @@ class Encoder(torch.nn.Module):
 
 
 class Decoder(torch.nn.Module):
-    def __init__(self, enc: Encoder):
+    def __init__(self, enc: Encoder, options):
         super(Decoder, self).__init__()
-
-        options = get_options()
 
         self.layers = torch.nn.ModuleList()
         self.unpools = torch.nn.ModuleList()
@@ -156,12 +152,10 @@ class Decoder(torch.nn.Module):
 
 # eoncoder for static part, i.e. offset part
 class StaticEncoder(torch.nn.Module):
-    def __init__(self, edges):
+    def __init__(self, edges, options):
         
         super(StaticEncoder, self).__init__()
 
-        options = get_options()
-        
         self.layers = torch.nn.ModuleList()
         activation = torch.nn.LeakyReLU(negative_slope=0.2)
         channels = 3
