@@ -197,13 +197,14 @@ class UnityMotionDataset(torch.utils.data.Dataset):
         self.channel_base = options["channel_base"]
         torch.device(device)
 
-        # get the skeleton information
-        self.skdata = SkeletonInfo(skchannel = skdata_sidechannel)
-
         # find all txt files in the dataset
         input_files = []
         for file in os.listdir(input_path):
-            if file.endswith('.txt'):
+            if file.endswith('.txt') and 'skdata' in file:
+                # get the skeleton information
+                self.skdata = SkeletonInfo(skdata_path = input_path + file)
+
+            if file.endswith('.txt') and 'skdata' not in file:
                 input_files.append(input_path + file)
 
         rotations = []
@@ -335,7 +336,7 @@ class UnityMotionDataset(torch.utils.data.Dataset):
 
 
 class SkeletonInfo:
-    def __init__(self, input_path=None, skchannel=None, subsample=False, xyz = 'xyz'):
+    def __init__(self, input_path=None, skchannel=None, skdata_path=None, subsample=False, xyz = 'xyz'):
         """
         Returns information about the skeleton topology using an example motion file 
         specified by file_path. 
@@ -355,6 +356,8 @@ class SkeletonInfo:
             self.load_from_file(input_path, xyz)
         elif skchannel is not None:
             self.load_from_channel(skchannel)
+        elif skdata_path is not None:
+            self.load_from_skdatafile(skdata_path)
         else:
             raise Exception('Pass either the input path or the skchannel to SkeletonInfo')
 
@@ -418,7 +421,18 @@ class SkeletonInfo:
         self.parents = [int(f) for f in skchannel.msg[ 1+self.num_joints*4 + self.num_joints*3 : -1 ]]
         self.frametime = skchannel.msg[ -1 ]
         
-    
+    def load_from_skdatafile(self, skdata_path):
+
+        with open(skdata_path) as f:
+            lines = f.readlines()
+
+        # EXTRACT INITIAL INFO ABOUT SKELETON
+        self.num_joints = int(lines[0][:-1])
+        self.offsets = torch.tensor( [float(f) for f in lines[1][:-1].split(',')] ).float().reshape(self.num_joints, 3)
+        init_rotations =  torch.tensor( [float(f) for f in lines[2][:-1].split(',')] ).float().reshape(self.num_joints, 4)
+        self.parents = [int(f) for f in lines[3][:-1].split(',')]
+        self.frametime = float(lines[4][:-1])
+
 
 if __name__ == "__main__":
 
