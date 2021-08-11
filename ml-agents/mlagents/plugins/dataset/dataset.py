@@ -191,7 +191,7 @@ class UnityMotionDataset(torch.utils.data.Dataset):
     motion retargetting by using the to_skdata() function. 
     """
 
-    def __init__(self, input_path:str, skdata_sidechannel, frame_boundaries=None, device:str='cpu'):
+    def __init__(self, input_path:str, skdata_sidechannel=None, frame_boundaries=None, device:str='cpu'):
         options = get_options()
         self.window_size = options['window_size']
         self.channel_base = options["channel_base"]

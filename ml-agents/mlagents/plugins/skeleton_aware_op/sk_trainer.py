@@ -32,16 +32,16 @@ class Sk_Trainer():
         self.adv_limits = None
 
         # Initialize the main functions
-        self.discriminator = Discriminator(self.skdata_adv.edges).to(self.device)
+        self.discriminator = Discriminator(self.skdata_adv.edges, options).to(self.device)
 
         # Retargetter initialization
-        self.encoder_sim = Encoder(self.skdata_input.edges)
+        self.encoder_sim = Encoder(self.skdata_input.edges, options)
         # use the initialization of encoder_data to get the correct pooling lists
-        self.encoder_data = Encoder(self.skdata_adv.edges) 
-        self.decoder_data = Decoder(self.encoder_data)
+        self.encoder_data = Encoder(self.skdata_adv.edges, options) 
+        self.decoder_data = Decoder(self.encoder_data, options)
 
-        self.static_encoder_sim = StaticEncoder(self.skdata_input.edges).to(self.device)
-        self.static_encoder_data = StaticEncoder(self.skdata_adv.edges).to(self.device)
+        self.static_encoder_sim = StaticEncoder(self.skdata_input.edges, options).to(self.device)
+        self.static_encoder_data = StaticEncoder(self.skdata_adv.edges, options).to(self.device)
 
         # Optimizers concatenate parameters used for pose generation
         gen_parameters = list(self.retargetter.encoder_sim.parameters()) + list(self.retargetter.decoder_data.parameters()) \

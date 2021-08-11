@@ -69,8 +69,8 @@ if __name__ == "__main__":
     log.init(log_dir)
 
     # LOAD PATH IF NEEDED : exclude the extension and model at the end of the path
-    load_path = None
-    # load_path = os.path.dirname(os.path.abspath(__file__)) + "/models/LaFanLine_11_08_2021-11_15/LafanLine_ep_10"
+    # load_path = None
+    load_path = os.path.dirname(os.path.abspath(__file__)) + "/models/LaFanLine_11_08_2021-19_09/LafanLine_ep_5"
 
     # log the hyperparameters for future reference
     log.writer.add_text("Hyperparameters", str(options))

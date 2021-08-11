@@ -145,7 +145,7 @@ class Discriminator(torch.nn.Module):
         self.D_loss(real_input, fake_input)
         self.optimizer.step()
 
-    def save(self, checkpoint_path):
+    def save(self, checkpoint_path, buffer):
 
         save_model_dict = {'model_state_dict' : self.discrim.state_dict(),
                     'optimizer_state_dict' : self.optimizer.state_dict(),
@@ -153,6 +153,7 @@ class Discriminator(torch.nn.Module):
                     'running_std_fake' : self.running_mean_std_fake.var,
                     'running_mean_real' : self.running_mean_std_real.mean,
                     'running_std_real' : self.running_mean_std_real.var,
+                    'discrim_buffer' : buffer.buffer
                     }
 
         torch.save(save_model_dict, checkpoint_path)
@@ -166,6 +167,8 @@ class Discriminator(torch.nn.Module):
         self.running_mean_std_fake.var = checkpoint['running_std_fake']
         self.running_mean_std_real.mean = checkpoint['running_mean_real']
         self.running_mean_std_real.var = checkpoint['running_std_real']
+
+        return checkpoint['discrim_buffer']
 
 
         

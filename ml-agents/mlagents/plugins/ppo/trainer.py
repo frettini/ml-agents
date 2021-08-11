@@ -361,13 +361,14 @@ class AMPTainer():
 
     def save(self, epoch):
         self.ppo_agent.save(self.model_path + "LafanLine_ep_{}_AC.tar".format(epoch))
-        self.discrim.save(self.model_path + "LafanLine_ep_{}_discrim.tar".format(epoch))
+        self.discrim.save(self.model_path + "LafanLine_ep_{}_discrim.tar".format(epoch), self.discrim_buffer)
 
     def load(self, load_path):
         cumul = self.ppo_agent.load(load_path + '_AC.tar')
-        self.discrim.load(load_path + '_discrim.tar')
+        buffer = self.discrim.load(load_path + '_discrim.tar')
 
         self.cumulated_training_steps = cumul
+        self.discrim_buffer.load(buffer)
 
 
 class DiscrimBuffer():
@@ -403,6 +404,11 @@ class DiscrimBuffer():
 
     def __getitem__(self,index):
         return self.buffer[index]
+
+    def load(self, buffer):
+        self.buffer = buffer
+        self.index = 0
+        self.max_ind = self.max_size
 
 # limits = [[-1,1],[-1,1],[-1,1]]
 # skeletons_plot([local_positions.cpu().detach()], [self.skdata.edges], ['g'], limits=limits, return_plot=False)
