@@ -1,17 +1,12 @@
-from mlagents_envs import side_channel
 import numpy as np
 from mlagents.torch_utils import torch, default_device
 
-from mlagents_envs.environment import UnityEnvironment
 from mlagents_envs.environment import ActionTuple
 
 from mlagents.plugins.ppo.PPO import PPO
 from mlagents.plugins.ppo.buffer import RolloutBuffer
 from mlagents.plugins.ppo.network import Discriminator
 from mlagents.plugins.dataset.dataset import UnityMotionDataset, SkeletonInfo
-from mlagents.plugins.bvh_utils.lafan_utils import get_pos_info_from_raw, get_batch_velo2
-
-from mlagents_envs.timers import timed, hierarchical_timer
 
 import mlagents.plugins.utils.logger as log
 from mlagents.plugins.bvh_utils.visualize import skeletons_plot, motion_animation
@@ -19,7 +14,7 @@ import mlagents.plugins.bvh_utils.lafan_utils as utils
 
 class AMPTainer():
     def __init__(self, env, options, motion_path,
-                 side_channels, model_path):
+                 side_channels, model_path, load_path=None):
         """
         The Adversarial Motion Prior Trainer uses motion data to drive the learning
         of a RL policy. 
@@ -51,6 +46,7 @@ class AMPTainer():
         self.discrim = Discriminator(options)
         self.features_per_joints=13
 
+
         # INIT TRAJECTORY RETRIEVAL
         # dictionary of buffers which maps an agent to a trajectory
         self.agent_buffers = {}
@@ -60,8 +56,14 @@ class AMPTainer():
         self.cumulated_reward = 0
         self.last_decay_action_check = 0
 
+        self.discrim_buffer = DiscrimBuffer(self.options)
+
         self.cumul_style_reward = 0
         self.cumul_goal_reward = 0
+
+        # INIT LOADED MODEL (if loadpath is not None)
+        if load_path is not None:
+            self.load(load_path)
 
     def train(self):
         """
@@ -96,8 +98,9 @@ class AMPTainer():
 
             epoch += 1
             
-            if(epoch % 5 == 0):
-                self.ppo_agent.save(self.model_path + "LafanLine_ep_{}.pt".format(epoch))
+            if(epoch % self.options["save_freq"] == 0):
+                self.save(epoch)
+                # self.ppo_agent.save(self.model_path + "LafanLine_ep_{}.pt".format(epoch))
         pass
 
     def get_trajectory(self):
@@ -281,6 +284,11 @@ class AMPTainer():
             buffer_batch = torch.vstack(buffer_batch)
             fake_input = self.buffer_to_discrim(buffer_batch)
 
+            # add to buffer, then randomly sample from buffer
+            self.discrim_buffer.add(fake_input)
+            rand_ind = np.random.randint(0, self.discrim_buffer.max_ind, batch_size)
+            fake_input = self.discrim_buffer[rand_ind]
+
             # pass in the data to the discriminator so that it can update itself
             self.discrim.optimize(real_input.float(), fake_input.float())
 
@@ -351,6 +359,50 @@ class AMPTainer():
 
         return discrim_input
 
+    def save(self, epoch):
+        self.ppo_agent.save(self.model_path + "LafanLine_ep_{}_AC.tar".format(epoch))
+        self.discrim.save(self.model_path + "LafanLine_ep_{}_discrim.tar".format(epoch))
+
+    def load(self, load_path):
+        cumul = self.ppo_agent.load(load_path + '_AC.tar')
+        self.discrim.load(load_path + '_discrim.tar')
+
+        self.cumulated_training_steps = cumul
+
+
+class DiscrimBuffer():
+    def __init__(self, options):
+        self.max_size = options['buffer_max_size']
+        self.n_features = options['input_dim_discrim']
+        self.index = 0
+        self.max_ind = 0
+        self.buffer = torch.zeros((self.max_size, self.n_features))
+
+    def add(self, input):
+        batch_size = input.shape[0]
+        
+        start_ind = 0
+        end_ind = 0
+
+        if self.index + batch_size > self.max_size - 1 :
+            ind = (self.max_size - 1) - (self.index)
+            self.buffer[self.index : self.max_size-1] = input[:ind]
+            input = input[ind:]
+            start_ind = 0
+            end_ind = batch_size - ind 
+        else:
+            start_ind = self.index
+            end_ind = self.index+batch_size
+
+        self.buffer[start_ind : end_ind] = input
+        self.index = end_ind
+
+        self.max_ind += batch_size
+        if self.max_ind > self.max_size-1:
+            self.max_ind = self.max_size-1
+
+    def __getitem__(self,index):
+        return self.buffer[index]
 
 # limits = [[-1,1],[-1,1],[-1,1]]
 # skeletons_plot([local_positions.cpu().detach()], [self.skdata.edges], ['g'], limits=limits, return_plot=False)
