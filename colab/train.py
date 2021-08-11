@@ -23,7 +23,7 @@ def paths_setup(model_path, log_path, behaviour_name):
     log_dir = os.path.dirname(os.path.abspath(__file__)) + log_dir
     log_dir = os.path.join(os.getcwd(),log_dir)
 
-     # model save path
+    # model save path
     model_dir = model_path + '{}_{}/'.format(behaviour_name, prt_time)
     model_dir = os.path.dirname(os.path.abspath(__file__)) + model_dir
     if not os.path.isdir(model_dir):
@@ -59,9 +59,13 @@ if __name__ == "__main__":
 
     # initialize model save path and logging path 
     model_path = "/models/"
-    log_path = "/runs/beans/friction_style/"
+    log_path = "/runs/beans/added_velocity/"
     model_dir, log_dir = paths_setup(model_path, log_path, list(env.behavior_specs)[0])
     log.init(log_dir)
+
+    # LOAD PATH IF NEEDED : exclude the extension and model at the end of the path
+    load_path = None
+    # load_path = os.path.dirname(os.path.abspath(__file__)) + "/models/LaFanLine_11_08_2021-11_15/LafanLine_ep_10"
 
     # log the hyperparameters for future reference
     log.writer.add_text("Hyperparameters", str(options))
@@ -69,7 +73,7 @@ if __name__ == "__main__":
     # initialize the trainer, which in turn initializes the policies, discrim etc.. 
     # motion_path = "C:/Users/nicol/Work/Master/dissertation/ml-agents/colab/data/"
     motion_path = os.path.dirname(os.path.abspath(__file__)) + "/data/"
-    trainer = AMPTainer(env,options,motion_path,side_channels, model_dir)
+    trainer = AMPTainer(env,options,motion_path,side_channels, model_dir, load_path)
     
     # start the training loop
     trainer.train()

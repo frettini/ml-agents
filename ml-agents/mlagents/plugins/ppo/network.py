@@ -70,7 +70,6 @@ class Discriminator(torch.nn.Module):
         self.running_mean_std_real = RunningMeanStd(shape=options["input_dim_discrim"])
         self.running_mean_std_fake = RunningMeanStd(shape=options["input_dim_discrim"])
 
-
     def forward(self, input):
         output = self.discrim(input)
         return torch.sigmoid(output)
@@ -127,7 +126,7 @@ class Discriminator(torch.nn.Module):
         loss_real += (self.grad_pernalty_factor/2) * grad_norm
         loss_real.backward()
 
-        self.cumul_grad_penalty += grad_norm
+        self.cumul_grad_penalty += grad_norm.detach()
 
         # do the same with the generator's poses
         label.fill_(self.fake_label)
@@ -145,6 +144,29 @@ class Discriminator(torch.nn.Module):
         self.zero_grad()
         self.D_loss(real_input, fake_input)
         self.optimizer.step()
+
+    def save(self, checkpoint_path):
+
+        save_model_dict = {'model_state_dict' : self.discrim.state_dict(),
+                    'optimizer_state_dict' : self.optimizer.state_dict(),
+                    'running_mean_fake' : self.running_mean_std_fake.mean,
+                    'running_std_fake' : self.running_mean_std_fake.var,
+                    'running_mean_real' : self.running_mean_std_real.mean,
+                    'running_std_real' : self.running_mean_std_real.var,
+                    }
+
+        torch.save(save_model_dict, checkpoint_path)
+
+    def load(self, checkpoint_path):
+        checkpoint = torch.load(checkpoint_path, map_location=lambda storage, loc: storage)
+
+        self.discrim.load_state_dict(checkpoint['model_state_dict'])
+        self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+        self.running_mean_std_fake.mean = checkpoint['running_mean_fake']
+        self.running_mean_std_fake.var = checkpoint['running_std_fake']
+        self.running_mean_std_real.mean = checkpoint['running_mean_real']
+        self.running_mean_std_real.var = checkpoint['running_std_real']
+
 
         
 

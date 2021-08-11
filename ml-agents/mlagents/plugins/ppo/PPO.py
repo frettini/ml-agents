@@ -1,3 +1,4 @@
+from mlagents.plugins.ppo import running_mean
 import numpy as np
 import random
 
@@ -262,7 +263,7 @@ class PPO:
         behaviour_name = list(behaviour_spec)[0]
         running_mean_std = RunningMeanStd(shape=behaviour_spec[behaviour_name].observation_specs[0].shape[0])
 
-        self.policy = ActorCritic(behaviour_spec, options, running_mean_std=running_mean_std).to(self.device)
+        self.policy : ActorCritic = ActorCritic(behaviour_spec, options, running_mean_std=running_mean_std).to(self.device)
         self.optimizer = torch.optim.Adam([
                         {'params': self.policy.actor.parameters(), 'lr': options["lr_actor"], 'weight_decay':0.0005},
                         {'params': self.policy.critic.parameters(), 'lr': options["lr_critic"]}
@@ -270,7 +271,7 @@ class PPO:
         self.scheduler = torch.optim.lr_scheduler.StepLR(self.optimizer, step_size=options["scheduler_step"], gamma=options["scheduler_gamma"])
             
         # keep track of the previous policy to generate the ratio
-        self.policy_old = ActorCritic(behaviour_spec, options, running_mean_std=running_mean_std).to(self.device)
+        self.policy_old : ActorCritic = ActorCritic(behaviour_spec, options, running_mean_std=running_mean_std).to(self.device)
         self.policy_old.load_state_dict(self.policy.state_dict())
 
         # buffer of observations
@@ -391,11 +392,11 @@ class PPO:
                 torch.nn.utils.clip_grad_norm_(list(self.policy.actor.parameters()) + list(self.policy.critic.parameters()), max_norm=0.5)
                 self.optimizer.step()
                 
-                cumul_returns += torch.mean(returns).item()
-                cumul_values +=  torch.mean(state_values).item()
-                cumul_entropy += torch.mean(dist_entropy).item()
-                cumul_loss_policy += torch.mean(torch.min(surr1, surr2)).item()
-                cumul_loss_value += value_loss3.item()
+                cumul_returns += torch.mean(returns).detach().item()
+                cumul_values +=  torch.mean(state_values).detach().item()
+                cumul_entropy += torch.mean(dist_entropy).detach().item()
+                cumul_loss_policy += torch.mean(torch.min(surr1, surr2)).detach().item()
+                cumul_loss_value += value_loss3.detach().item()
 
         # Log Information
         N = len(batch_indices*self.K_epochs)
@@ -458,11 +459,32 @@ class PPO:
         return advantages, rewards
 
     def save(self, checkpoint_path):
-        torch.save(self.policy_old.state_dict(), checkpoint_path)
+
+        save_model_dict = {'action_std' : self.action_std,
+                          'cumulated_training_steps' : self.cumulated_training_steps,
+                          'model_state_dict' : self.policy_old.state_dict(),
+                          'optimizer_state_dict' : self.optimizer.state_dict(),
+                          'scheduler' : self.scheduler.state_dict(),
+                          'running_mean' : self.policy_old.running_mean_std.mean,
+                          'running_std' : self.policy_old.running_mean_std.var}
+
+        torch.save(save_model_dict, checkpoint_path)
+
 
     def load(self, checkpoint_path):
-        self.policy_old.load_state_dict(torch.load(checkpoint_path, map_location=lambda storage, loc: storage))
-        self.policy.load_state_dict(torch.load(checkpoint_path, map_location=lambda storage, loc: storage))
+        
+        checkpoint = torch.load(checkpoint_path, map_location=lambda storage, loc: storage)
+        
+        self.action_std = checkpoint['action_std']
+        self.cumulated_training_steps = checkpoint['cumulated_training_steps']
+        self.policy_old.load_state_dict(checkpoint['model_state_dict'])
+        self.policy.load_state_dict(checkpoint['model_state_dict'])
+        self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+        self.scheduler.load_state_dict(checkpoint['scheduler'])
+        self.policy_old.running_mean_std.mean = checkpoint['running_mean']
+        self.policy_old.running_mean_std.std = checkpoint['running_std']
+
+        return self.cumulated_training_steps
         
         
        

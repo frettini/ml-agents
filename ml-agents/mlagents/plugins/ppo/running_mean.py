@@ -17,8 +17,8 @@ class RunningMeanStd(object):
         x : 
         """
         if(x.shape[0]>1):
-            batch_mean = torch.mean(x, axis=0)
-            batch_var = torch.var(x, axis=0)
+            batch_mean = torch.mean(x.detach(), axis=0)
+            batch_var = torch.var(x.detach(), axis=0)
             batch_count = x.shape[0]
             self.update_from_moments(batch_mean, batch_var, batch_count)
 
@@ -26,6 +26,10 @@ class RunningMeanStd(object):
         self.mean, self.var, self.count = update_mean_var_count_from_moments(
             self.mean, self.var, self.count, batch_mean, batch_var, batch_count)
         self.var = torch.where( self.var < torch.as_tensor(1e-5).float(),  torch.as_tensor(1.).float(), self.var)
+
+    def set_mean_var(self, mean, var):
+        self.mean = mean
+        self.var = var
 
 def update_mean_var_count_from_moments(mean, var, count, batch_mean, batch_var, batch_count):
     delta = batch_mean - mean

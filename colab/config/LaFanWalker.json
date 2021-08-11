@@ -7,6 +7,7 @@
 "K_epochs"              : 10,
 "continuous_space"      : true,
 "normalize"             : true,
+"buffer_max_size"       : 4000,
 
 "hidden_units_actor"    : [1024,512],
 "num_layers_actor"      : 2,
@@ -30,7 +31,7 @@
 "K_discrim"             : 1,
 
 "action_std"            : 0.8,       
-"action_std_decay_rate" : 0.003,
+"action_std_decay_rate" : 0.001,
 "min_action_std"        : 0.2,
 "action_std_decay_freq" : 20000,
 
@@ -47,6 +48,7 @@
 
 "print_freq"            : 200,
 "log_freq"              : 200,
+"save_freq"             : 20,
 
 
 "comment2"              : "SKELETON AWARE OPTIONS",
