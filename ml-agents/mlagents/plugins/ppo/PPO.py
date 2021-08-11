@@ -484,6 +484,8 @@ class PPO:
         self.policy_old.running_mean_std.mean = checkpoint['running_mean']
         self.policy_old.running_mean_std.std = checkpoint['running_std']
 
+        self.set_action_std(self.action_std)
+
         return self.cumulated_training_steps
         
         
