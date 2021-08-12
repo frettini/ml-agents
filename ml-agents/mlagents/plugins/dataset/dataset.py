@@ -260,6 +260,10 @@ class UnityMotionDataset(torch.utils.data.Dataset):
         self.velocity_var = torch.where( self.velocity_var.double() < 1e-5, 1., self.velocity_var.double()).float()
         self.velocity_var = self.velocity_var ** (1/2)
 
+        # motion = self.to_skaware([0], [self.positions.shape[0]])
+        # self.skaware_mean = torch.mean(motion, dim=0)
+        # self.skaware_var = torch.var(motion, dim=0)
+
     def __getitem__(self, index):
         """
         return positions and rotation (in that order) with shape [n_frames, n_joints, 3/4]
@@ -272,7 +276,7 @@ class UnityMotionDataset(torch.utils.data.Dataset):
     def __len__(self):
         return self.positions.shape[0]
 
-    def to_skdata(self, start_inds, end_inds):
+    def to_skaware(self, start_inds, end_inds):
         """
         Provide data to comply to the shape needed for the skeleton aware code. 
         That means shape [batch_size, window_size, n_joints*channel_size]
@@ -282,18 +286,22 @@ class UnityMotionDataset(torch.utils.data.Dataset):
 
         positions = []
         rotations = []
+        velocity = []
         n_windows = len(start_inds)
 
         # extract the positions and rotations windows
         for i in range(len(start_inds)):
             pos = self.positions[start_inds[i]:end_inds[i]]
             rot = self.rotations[start_inds[i]:end_inds[i]]
+            vel = self.velocity[start_inds[i]:end_inds[i]]
             positions.append(pos)
             rotations.append(rot)
+            velocity.append(vel)
 
         # concatenate them in a single tensor of shape [n_windows, n_frames, n_joints, 3/4]
         positions = torch.cat(positions, dim=0)
         rotations = torch.cat(rotations, dim=0)
+        velocity = torch.cat(velocity, dim=0)
 
         self.normalize(positions,rotations)
 
@@ -303,15 +311,18 @@ class UnityMotionDataset(torch.utils.data.Dataset):
             index.append(e[0])
         rotations = rotations[:,index, :]
         # concatenate the rotations, global pos and a padding together [n_windows, n_frames, joints*channel_base]
-        rotations_cat = rotations.reshape(n_windows, self.window_size, self.skdata.num_joints * self.channel_base)
+        rotations_cat = rotations.reshape(n_windows, self.window_size, (self.skdata.num_joints-1) * self.channel_base)
 
         # get the global velocity:
-        velocity = utils.get_batch_velo2(positions, frametime)
-        root_velocity = velocity[:,:,0,:]
+        # velocity = utils.get_velocity(positions, self.skdata.frametime)
+        velocity = velocity.reshape(n_windows, self.window_size, self.skdata.num_joints * 3)
+        root_velocity = velocity[:,:,0:3]
 
-        motion_data = torch.cat([rotations_cat, root_velocity.reshape(n_windows, self.window_size, -1), torch.zeros((n_windows, self.window_size,1))], axis=1)
+        motion_data = torch.cat([rotations_cat, root_velocity.reshape(n_windows, self.window_size, -1), torch.zeros((n_windows, self.window_size,1))], axis=2)
+
+        return motion_data
     
-    def normalize(self, positions = None, rotations=None):
+    def normalize(self, positions = None, rotations=None, velocity=None):
         """
         Normalize the data passed. This is an inplace function which changes the variables passed
         to the function. 

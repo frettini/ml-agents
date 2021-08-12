@@ -17,7 +17,7 @@ class Encoder(torch.nn.Module):
         self.pooling_list = []
         self.layers = torch.nn.ModuleList()
         self.convs = []
-        num_layers = options['num_layers']
+        num_layers = options['sk_num_layers']
 
         # initialize convolution kernel
         kernel_size = options['kernel_size']
@@ -89,7 +89,7 @@ class Decoder(torch.nn.Module):
 
         self.enc = enc # needs a reference to the encoder for the unpooling operation
         self.convs = []
-        num_layers = options['num_layers']
+        num_layers = options['sk_num_layers']
 
         kernel_size = options['kernel_size']
         padding = (kernel_size - 1) // 2
@@ -159,7 +159,7 @@ class StaticEncoder(torch.nn.Module):
         self.layers = torch.nn.ModuleList()
         activation = torch.nn.LeakyReLU(negative_slope=0.2)
         channels = 3
-        num_layers = options['num_layers']
+        num_layers = options['sk_num_layers']
 
         for i in range(num_layers):
             neighbor_list = find_neighbor(edges, options['num_neighbours'])

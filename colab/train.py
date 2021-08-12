@@ -64,13 +64,13 @@ if __name__ == "__main__":
 
     # initialize model save path and logging path 
     model_path = "/models/"
-    log_path = "/runs/beans/discrim_buffer/"
+    log_path = "/runs/beans/smaller_example/"
     model_dir, log_dir = paths_setup(model_path, log_path, list(env.behavior_specs)[0])
     log.init(log_dir)
 
     # LOAD PATH IF NEEDED : exclude the extension and model at the end of the path
-    # load_path = None
-    load_path = os.path.dirname(os.path.abspath(__file__)) + "/models/LaFanLine_11_08_2021-19_09/LafanLine_ep_5"
+    load_path = None
+    # load_path = os.path.dirname(os.path.abspath(__file__)) + "/models/LaFanLine_11_08_2021-12_05/LafanLine_ep_760"
 
     # log the hyperparameters for future reference
     log.writer.add_text("Hyperparameters", str(options))

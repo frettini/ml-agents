@@ -44,8 +44,8 @@ class Sk_Trainer():
         self.static_encoder_data = StaticEncoder(self.skdata_adv.edges, options).to(self.device)
 
         # Optimizers concatenate parameters used for pose generation
-        gen_parameters = list(self.retargetter.encoder_sim.parameters()) + list(self.retargetter.decoder_data.parameters()) \
-            + list(self.retargetter.static_encoder_sim.parameters()) + list(self.retargetter.static_encoder_data.parameters())
+        gen_parameters = list(self.encoder_sim.parameters()) + list(self.decoder_data.parameters()) \
+            + list(self.static_encoder_sim.parameters()) + list(self.static_encoder_data.parameters())
 
         self.gen_optimizer = torch.optim.Adam(gen_parameters, lr=self.options["sk_g_lr"], betas=(0.9, 0.999))
         self.discrim_optimizer = torch.optim.Adam(self.discriminator.parameters(), lr=self.options["sk_d_lr"], betas=(0.9, 0.999))
@@ -86,16 +86,16 @@ class Sk_Trainer():
             for i in range(n_loop):
                 
                 # get start and end indices of each batch, then load data 
-                start_inds = wind_indices[i*self.options["sk_batch_size"], (i+1)*self.options["sk_batch_size"]] 
+                start_inds = wind_indices[i*self.options["sk_batch_size"]:(i+1)*self.options["sk_batch_size"]] 
                 end_inds = start_inds + self.options["window_size"]
 
                 # reshape motion to [batch_size, window_size, n_joints*channel_size]
-                motion = self.input_dataset.to_skdata(start_inds, end_inds)
+                motion = self.input_dataset.to_skaware(start_inds, end_inds)
                 curr_batch_size = motion.shape[0]
 
                 # get a frame from the "real" data 
                 randinds = np.random.randint(0,len(self.adv_dataset) - self.options["window_size"], curr_batch_size)
-                real_motion = self.adv_dataset.to_skdata(randinds, start_inds + self.options["window_size"])
+                real_motion = self.adv_dataset.to_skaware(randinds, randinds + self.options["window_size"])
 
                 # perform retargeting
                 output_motion = self.retarget(motion)
@@ -133,7 +133,7 @@ class Sk_Trainer():
         # first get the offsets from the static encoder 
         # deep_offsets = static_encoder(torch.tensor(anim.offsets[np.newaxis, :,:]).float())
         deep_offsets_sim = self.static_encoder_sim(self.skdata_input.offsets.reshape(1, self.skdata_input.offsets.shape[0], -1))
-        deep_offsets_output = self.static_encoder_data(self.skdata_output.offsets.reshape(1, self.skdata_output.offsets.shape[0], -1))
+        deep_offsets_output = self.static_encoder_data(self.skdata_adv.offsets.reshape(1, self.skdata_adv.offsets.shape[0], -1))
 
         self.input_dataset.normalize(motion)
         latent = self.encoder_sim(motion, deep_offsets_sim)
