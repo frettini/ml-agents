@@ -7,6 +7,8 @@ from mlagents.plugins.skeleton_aware_op.discriminator_temporal import Discrimina
 from mlagents.plugins.skeleton_aware_op.loss import calc_chain_velo_loss, calc_ee_loss
 from mlagents.plugins.bvh_utils import lafan_utils as utils
 from mlagents.plugins.bvh_utils import BVH_mod as BVH
+import mlagents.plugins.utils.logger as log 
+
 
 from mlagents.plugins.bvh_utils.visualize import skeletons_plot, motion_animation
 from torch.utils.tensorboard import SummaryWriter
@@ -44,8 +46,8 @@ class Sk_Trainer():
         self.static_encoder_data = StaticEncoder(self.skdata_adv.edges, options).to(self.device)
 
         # Optimizers concatenate parameters used for pose generation
-        gen_parameters = list(self.retargetter.encoder_sim.parameters()) + list(self.retargetter.decoder_data.parameters()) \
-            + list(self.retargetter.static_encoder_sim.parameters()) + list(self.retargetter.static_encoder_data.parameters())
+        gen_parameters = list(self.encoder_sim.parameters()) + list(self.decoder_data.parameters()) \
+            + list(self.static_encoder_sim.parameters()) + list(self.static_encoder_data.parameters())
 
         self.gen_optimizer = torch.optim.Adam(gen_parameters, lr=self.options["sk_g_lr"], betas=(0.9, 0.999))
         self.discrim_optimizer = torch.optim.Adam(self.discriminator.parameters(), lr=self.options["sk_d_lr"], betas=(0.9, 0.999))
@@ -54,10 +56,14 @@ class Sk_Trainer():
         # cyclic_decay = lambda x : max(0.0001,0.4*(np.cos(lr_freq*x)+1.2)*(lr_decay**x))
         # scheduler = torch.optim.lr_scheduler.LambdaLR(gen_optimizer, lr_lambda=cyclic_decay)
 
+        self.real_label = 1
+        self.fake_label = 0
+
         self.criterion_gan = torch.nn.MSELoss()
         self.criterion_ee = torch.nn.MSELoss()
         self.criterion_root_velocity = torch.nn.MSELoss()
         self.criterion_velo = torch.nn.MSELoss()
+        self.criterion_global_rotation = torch.nn.MSELoss()
 
         self.G_cumul = self.G_loss_adv_cumul = self.G_loss_ee_cumul = self.G_loss_velo_cumul = self.G_loss_glob_cumul = 0
         self.D_cumul = self.D_real_cumul = self.D_fake_cumul = 0
@@ -76,7 +82,7 @@ class Sk_Trainer():
                 length = len(self.input_dataset)
                 
             # get the number of windows in the dataset (with overlap thus //2)
-            n_windows = length // (self.options["window_size"]//2)
+            n_windows = length // (self.options["window_size"]//2) - 1
             # generate a list of indices and shuffle them
             wind_indices = np.array(list(range(n_windows)), dtype=np.int32) * (self.options["window_size"]//2)
             random.shuffle(wind_indices)
@@ -86,16 +92,16 @@ class Sk_Trainer():
             for i in range(n_loop):
                 
                 # get start and end indices of each batch, then load data 
-                start_inds = wind_indices[i*self.options["sk_batch_size"], (i+1)*self.options["sk_batch_size"]] 
+                start_inds = wind_indices[i*self.options["sk_batch_size"]:(i+1)*self.options["sk_batch_size"]] 
                 end_inds = start_inds + self.options["window_size"]
 
                 # reshape motion to [batch_size, window_size, n_joints*channel_size]
-                motion = self.input_dataset.to_skdata(start_inds, end_inds)
+                motion = self.input_dataset.to_skaware(start_inds, end_inds)
                 curr_batch_size = motion.shape[0]
 
                 # get a frame from the "real" data 
                 randinds = np.random.randint(0,len(self.adv_dataset) - self.options["window_size"], curr_batch_size)
-                real_motion = self.adv_dataset.to_skdata(randinds, start_inds + self.options["window_size"])
+                real_motion = self.adv_dataset.to_skaware(randinds, randinds + self.options["window_size"])
 
                 # perform retargeting
                 output_motion = self.retarget(motion)
@@ -103,25 +109,40 @@ class Sk_Trainer():
                 # extract global position, root velocity,  
                 # TODO: Changed get_pos_info_from_raw definition to take in offsets as a 2d data [num_joints, 3]
                 fake_data = utils.get_pos_info_from_raw(output_motion, self.skdata_input, self.options, norm_rot=True)
-                fake_pos, fake_pos_local, fake_glob, fake_glob_velo, fake_vel = fake_data
+                fake_pos, fake_pos_local, fake_glob, fake_glob_velo, fake_vel, _ = fake_data
 
                 real_data = utils.get_pos_info_from_raw(real_motion, self.skdata_adv, self.options, norm_rot=True)
-                real_pos, real_pos_local, real_glob, real_glob_velo, real_vel = real_data
+                real_pos, real_pos_local, real_glob, real_glob_velo, real_vel, _ = real_data
 
                 motion_data = utils.get_pos_info_from_raw(motion, self.skdata_input, self.options, norm_rot=False )
-                input_pos, input_pos_local, input_glob, input_glob_velo, input_vel = motion_data
+                input_pos, input_pos_local, input_glob, input_glob_velo, input_vel, _ = motion_data
 
                 # the GAN update code is mostly taken from :
                 #https://pytorch.org/tutorials/beginner/dcgan_faces_tutorial.html#loss-functions-and-optimizers
                 # update discriminator 
-                self.update_discriminator(real_pos, fake_pos)
+                self.update_discriminator(real_pos, fake_pos, isTest = False)
                 
                 # UPDATE GENERATOR NETWORK
                 # auto_encoder.zero_grad()
-                self.update_generator(motion_data, fake_data)
+                self.update_generator(motion_data, fake_data, isTest = False)
 
                 if(i % 10 == 0):
                     print("Batch : {}, Discriminator loss: {}, Generator loss : {}".format(i, self.D_cumul, self.G_cumul))
+
+        
+            N = n_loop
+            log.writer.add_scalar('Train/Discriminator/D_loss', self.D_cumul/N, ep)
+            log.writer.add_scalar('Train/Discriminator/D_real', self.D_real_cumul/N, ep)
+            log.writer.add_scalar('Train/Discriminator/D_fake', self.D_fake_cumul/N, ep)
+
+            log.writer.add_scalar('Train/AE/G_loss',    self.G_cumul/N, ep)
+            log.writer.add_scalar('Train/AE/adv_loss',  self.G_loss_adv_cumul/N, ep)
+            log.writer.add_scalar('Train/AE/ee_loss',   self.G_loss_ee_cumul/N, ep)
+            log.writer.add_scalar('Train/AE/velo_loss', self.G_loss_velo_cumul/N, ep)
+            log.writer.add_scalar('Train/AE/glob_loss', self.G_loss_glob_cumul/N, ep)
+            
+            self.G_cumul = self.G_loss_adv_cumul = self.G_loss_ee_cumul  = self.G_loss_velo_cumul = self.G_loss_glob_cumul = 0
+            self.D_cumul = self.D_real_cumul = self.D_fake_cumul = 0   
 
     def retarget(self, motion):
         """
@@ -133,16 +154,20 @@ class Sk_Trainer():
         # first get the offsets from the static encoder 
         # deep_offsets = static_encoder(torch.tensor(anim.offsets[np.newaxis, :,:]).float())
         deep_offsets_sim = self.static_encoder_sim(self.skdata_input.offsets.reshape(1, self.skdata_input.offsets.shape[0], -1))
-        deep_offsets_output = self.static_encoder_data(self.skdata_output.offsets.reshape(1, self.skdata_output.offsets.shape[0], -1))
+        deep_offsets_output = self.static_encoder_data(self.skdata_adv.offsets.reshape(1, self.skdata_adv.offsets.shape[0], -1))
 
-        self.input_dataset.normalize(motion)
+        self.input_dataset.normalize(skaware_data = motion)
+
+        motion = motion.permute(0,2,1)
         latent = self.encoder_sim(motion, deep_offsets_sim)
         res = self.decoder_data(latent, deep_offsets_output)
-        res = self.adv_dataset.denormalize(res)
+
+        res = res.permute(0,2,1)
+        self.adv_dataset.denormalize(skaware_data = res)
 
         return res
 
-    def update_generator(self, input_data, output_data):
+    def update_generator(self, input_data, output_data, isTest = False):
         """
         Compute the full generator loss (adv and other) and its gradients and apply them 
         to the autoencoder and static encoders.
@@ -151,14 +176,14 @@ class Sk_Trainer():
         # TODO: pass all the required information for updating the generator
 
         # UPDATE GENERATOR NETWORK
-        # auto_encoder.zero_grad()
-        self.encoder_sim.zero_grad()
-        self.decoder_data.zero_grad()
-        self.static_encoder_sim.zero_grad()
-        self.static_encoder_data.zero_grad()
+        if not isTest:
+            self.encoder_sim.zero_grad()
+            self.decoder_data.zero_grad()
+            self.static_encoder_sim.zero_grad()
+            self.static_encoder_data.zero_grad()
 
-        input_pos, input_pos_local, input_root_rotation, input_glob_velo, input_vel = input_data
-        output_pos, output_pos_local, output_root_rotation, output_glob_velo, output_vel = output_data
+        input_pos, input_pos_local, input_root_rotation, input_glob_velo, input_vel, _ = input_data
+        output_pos, output_pos_local, output_root_rotation, output_glob_velo, output_vel, _ = output_data
 
         curr_batch_size = input_pos.shape[0]
         
@@ -172,26 +197,27 @@ class Sk_Trainer():
         # loss_chain_velo = calc_chain_velo_loss(real_vel, fake_vel, chain_indices, 
         #                                        criterion_velo, normalize_velo = False)
         loss_glob_velo = self.criterion_velo(output_glob_velo/self.skdata_adv.height, input_glob_velo/self.skdata_input.height)
-        loss_ee = self.calc_ee_loss(input_vel, input_pos_local, output_vel, output_pos_local, self.criterion_ee)
+        loss_ee = self.calc_ee_loss(input_vel, input_pos_local, output_vel, output_pos_local)
         
 
         # combine all the losses together
         loss_gen =  loss_adv*self.options["sk_adv_factor"] + loss_ee*self.options["sk_ee_factor"] + \
         loss_rot*self.options["sk_rot_factor"] + loss_glob_velo*self.options["sk_glob_velo_factor"]
         
-        # update gradient
-        loss_gen.backward()
-        self.gen_optimizer.step()
+        if not isTest:
+            # update gradient
+            loss_gen.backward()
+            self.gen_optimizer.step()
         
         # record losses 
-        self.G_cumul += loss_gen
+        self.G_cumul += loss_gen.detach().item()
         
-        self.G_loss_adv_cumul += loss_adv
-        self.G_loss_ee_cumul  += loss_ee
-        self.G_loss_velo_cumul+= loss_glob_velo
-        self.G_loss_glob_cumul+= loss_rot
-
-    def update_discriminator(self, real_pos, fake_pos):
+        self.G_loss_adv_cumul += loss_adv.detach().item()
+        self.G_loss_ee_cumul  += loss_ee.detach().item()
+        self.G_loss_velo_cumul+= loss_glob_velo.detach().item()
+        self.G_loss_glob_cumul+= loss_rot.detach().item()
+        
+    def update_discriminator(self, real_pos, fake_pos, isTest = False):
         """
         Compute the discriminator loss and its gradient, and apply it to the discriminator
         """
@@ -199,27 +225,31 @@ class Sk_Trainer():
         curr_batch_size = real_pos.shape[0]
         label = torch.full((curr_batch_size,), self.real_label, dtype=torch.float, device=default_device())
         
-        self.discriminator.zero_grad()
+        if not isTest:
+            self.discriminator.zero_grad()
 
         # forward pass
         output = self.discriminator.forward(real_pos.float()).view(-1)
         loss_real = self.criterion_gan(output,label)
-        loss_real.backward()
+        if not isTest:
+            loss_real.backward()
         
         # do the same with the generated position
         label.fill_(self.fake_label)
-        output = self.forward(fake_pos.float().detach()).view(-1)
+        output = self.discriminator.forward(fake_pos.float().detach()).view(-1)
         loss_fake = self.criterion_gan(output, label)
-        loss_fake.backward()
+        if not isTest:
+            loss_fake.backward()
 
         loss_discrim = loss_real + loss_fake
 
-        self.discrim_optimizer.step()
+        if not isTest:
+            self.discrim_optimizer.step()
 
         # record losses 
-        self.D_cumul += loss_discrim
-        self.D_real_cumul += loss_real
-        self.D_fake_cumul  += loss_fake
+        self.D_cumul += loss_discrim.detach().item()
+        self.D_real_cumul += loss_real.detach().item()
+        self.D_fake_cumul  += loss_fake.detach().item()
     
     def calc_ee_loss(self, real_vel, real_pos, fake_vel, fake_pos):
         """
@@ -233,8 +263,11 @@ class Sk_Trainer():
         fake_pos_loc = fake_pos - fake_pos[:,:,0:1,:]
         real_pos_loc = real_pos - real_pos[:,:,0:1,:]
 
-        fake_ee = torch.cat((fake_vel[:,:,ee_false,:], fake_pos_loc[:,:,ee_false,:]), dim=2)
-        real_ee = torch.cat((real_vel[:,:,ee_real,:], real_pos_loc[:,:,ee_real,:]), dim=2)
+        # fake_ee = torch.cat((fake_vel[:,:,ee_false,:], fake_pos_loc[:,:,ee_false,:]), dim=2)
+        # real_ee = torch.cat((real_vel[:,:,ee_real,:], real_pos_loc[:,:,ee_real,:]), dim=2)
+        fake_ee = fake_pos_loc[:,:,ee_false,:]
+        real_ee = real_pos_loc[:,:,ee_real,:]
+
 
         real_length = self.skdata_adv.ee_length.reshape(1,1,self.skdata_adv.ee_length.shape[0],1)
         fake_length = self.skdata_input.ee_length.reshape(1,1,self.skdata_input.ee_length.shape[0],1)
@@ -245,6 +278,7 @@ class Sk_Trainer():
 
 
         # loss_ee_velo = criterion_ee(fake_joint_vel[:,:,ee_id,:], real_joint_vel[:,:,ee_id,:])
-        loss_ee_velo = self.criterion_ee(fake_ee/fake_length, real_ee/real_length)
+        # loss_ee_velo = self.criterion_ee(fake_ee/fake_length, real_ee/real_length)
+        loss_ee_velo = self.criterion_ee(fake_ee, real_ee)
 
         return loss_ee_velo

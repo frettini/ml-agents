@@ -1,4 +1,4 @@
-from mlagents.plugins.skeleton_aware_op.skeleton_temporal import SkeletonConv, SkeletonPool
+from mlagents.plugins.skeleton_aware_op.skeleton_temporal import SkeletonConv, SkeletonPool, find_neighbor
 from mlagents.torch_utils import torch, default_device
 
 
@@ -6,6 +6,7 @@ class Discriminator(torch.nn.Module):
     def __init__(self, topology, options, real_label = 1, fake_label = 0, criterion_gan = None):
 
         super(Discriminator, self).__init__()
+        self.device = default_device()
 
         self.topologies = [topology]
         self.channel_base = [3] # work on position?
@@ -13,7 +14,7 @@ class Discriminator(torch.nn.Module):
         self.joint_num = [len(topology) + 1] # edges + 1
         self.pooling_list = []
         self.layers = torch.nn.ModuleList()
-        self.num_layers = options['num_layers']
+        self.num_layers = options['sk_num_layers']
         self.skeleton_dist = options['num_neighbours']
         self.patch_gan = 0
         kernel_size = options['kernel_size']
@@ -31,7 +32,7 @@ class Discriminator(torch.nn.Module):
         for i in range(self.num_layers):
             seq = []
             # generate list of neighbours at each topology (varies bc of Pooling)
-            neighbor_list = skeleton_temporal.find_neighbor(self.topologies[i], self.skeleton_dist) 
+            neighbor_list = find_neighbor(self.topologies[i], self.skeleton_dist) 
             in_channels = self.channel_base[i] * self.joint_num[i]
             out_channels = self.channel_base[i+1] * self.joint_num[i]
 
@@ -122,7 +123,7 @@ class Discriminator(torch.nn.Module):
         curr_batch_size = fake_pos.shape[0]
 
         # Adversial Loss, use real labels to maximize log(D(G(x))) instead of log(1-D(G(x)))
-        label = torch.full((curr_batch_size,), self.real_label, dtype=torch.float, device=device)
+        label = torch.full((curr_batch_size,), self.real_label, dtype=torch.float, device=default_device())
         label.fill_(self.real_label)
         output = self.forward(fake_pos.float()).view(-1)
         loss_adv = self.criterion_gan(output,label)

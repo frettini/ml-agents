@@ -1,13 +1,13 @@
 {
 "comment1"              : "RL OPTIONS",
-"batch_size"            : 50,      
-"batch_size_discrim"    : 50,
-"buffer_size"           : 130,       
+"batch_size"            : 256,      
+"batch_size_discrim"    : 256,
+"buffer_size"           : 4096,       
 "max_training_steps"    : 10000000,     
 "K_epochs"              : 10,
 "continuous_space"      : true,
 "normalize"             : true,
-"buffer_max_size"       : 130,
+"buffer_max_size"       : 4000,
 
 "hidden_units_actor"    : [1024,512],
 "num_layers_actor"      : 2,
@@ -40,11 +40,11 @@
 "lambda"                : 0.95,
 "advantage"             : "gae",
 
-"lr_actor"              : 0.00003,
-"lr_critic"             : 0.0004,
+"lr_actor"              : 0.00002,
+"lr_critic"             : 0.0002,
 "scheduler_gamma"       : 0.98,
 "scheduler_step"        : 20,
-"lr_discrim"            : 0.000005,
+"lr_discrim"            : 0.000001,
 
 "print_freq"            : 200,
 "log_freq"              : 200,
@@ -60,13 +60,14 @@
 "sk_d_lr"               : 0.0002,
 
 "kernel_size"           : 5,      
-"num_layers_ae"         : 2,       
+"sk_num_layers"         : 2,       
 "num_neighbours"        : 2,       
 "window_size"           : 16,
 "drop_percentage"       : null,
 
-"sk_ee_factor"          : 1000,
-"sk_adv_factor"         : 100,
-"sk_rot_factor"         : 100,
+"sk_ee_factor"          : 2,
+"sk_adv_factor"         : 0.25,
+"sk_rot_factor"         : 0,
+"sk_glob_velo_factor"   : 1,
 "sk_root_velo_factor"   : 1
 }      

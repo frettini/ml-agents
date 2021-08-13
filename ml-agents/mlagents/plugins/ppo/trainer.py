@@ -9,6 +9,7 @@ from mlagents.plugins.ppo.network import Discriminator
 from mlagents.plugins.dataset.dataset import UnityMotionDataset, SkeletonInfo
 
 import mlagents.plugins.utils.logger as log
+from mlagents.plugins.utils.memory import memReport, cpuStats
 from mlagents.plugins.bvh_utils.visualize import skeletons_plot, motion_animation
 import mlagents.plugins.bvh_utils.lafan_utils as utils
 
@@ -86,7 +87,7 @@ class AMPTainer():
 
             # update the discriminator 
             self.discrim_update()
-
+            
             # update the policy using the collected buffer
             self.ppo_agent.batch_update()
 
@@ -265,7 +266,10 @@ class AMPTainer():
             #rand_ind = np.random.randint(80, 1300 - (batch_size+1)) # TODO: remove hardcoded values
             # adv_motion = self.adv_dataset[rand_ind:rand_ind+batch_size+1]
 
-            rand_ind = np.random.randint(80,900 - 1, batch_size)
+            rand_ind = np.random.randint(0,275, batch_size)
+            rand_ind[rand_ind < 175] += 75
+            rand_ind[rand_ind > 175] += 175
+
             adv_motion_curr = self.adv_dataset[rand_ind]
             adv_motion_next = self.adv_dataset[rand_ind+1]
             adv_motion = (adv_motion_curr, adv_motion_next)
@@ -418,7 +422,7 @@ class DiscrimBuffer():
 # offsets = offsets.repeat(rotations.shape[0],1,1)
 
 # _, pos_from_rot = utils.quat_fk(rotations, offsets, self.skdata.parents)
-# skeletons_plot([local_positions[0].cpu().detach(), pos_from_rot[0].cpu().detach()], [self.skdata.edges,self.skdata.edges], ['g', 'b'], limits=limits, return_plot=False)
+# skeletons_plot([local_positions[0].cpu().detach()], [self.skdata.edges,self.skdata.edges], ['g', 'b'], limits=limits, return_plot=False)
 
 # anim = motion_animation([pos_from_rot[0].cpu().detach(), local_positions[0].cpu().detach()], [self.skdata.edges, self.skdata.edges], ['g', 'b'], limits)
 # HTML(anim.to_jshtml())

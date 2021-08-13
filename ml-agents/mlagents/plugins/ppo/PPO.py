@@ -342,7 +342,6 @@ class PPO:
 
         # Optimize policy for K epochs
         for _ in range(self.K_epochs):
-
             random.shuffle(batch_indices)
 
             for ind in batch_indices:
@@ -462,7 +461,8 @@ class PPO:
 
         save_model_dict = {'action_std' : self.action_std,
                           'cumulated_training_steps' : self.cumulated_training_steps,
-                          'model_state_dict' : self.policy_old.state_dict(),
+                          'policy_state_dict' : self.policy.state_dict(),
+                          'old_policy_state_dict' : self.policy_old.state_dict(),
                           'optimizer_state_dict' : self.optimizer.state_dict(),
                           'scheduler' : self.scheduler.state_dict(),
                           'running_mean' : self.policy_old.running_mean_std.mean,
@@ -477,8 +477,8 @@ class PPO:
         
         self.action_std = checkpoint['action_std']
         self.cumulated_training_steps = checkpoint['cumulated_training_steps']
-        self.policy_old.load_state_dict(checkpoint['model_state_dict'])
-        self.policy.load_state_dict(checkpoint['model_state_dict'])
+        self.policy_old.load_state_dict(checkpoint['old_policy_state_dict'])
+        self.policy.load_state_dict(checkpoint['policy_state_dict'])
         self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
         self.scheduler.load_state_dict(checkpoint['scheduler'])
         self.policy_old.running_mean_std.mean = checkpoint['running_mean']

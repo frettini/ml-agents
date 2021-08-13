@@ -2,6 +2,8 @@ from mlagents.torch_utils import torch, default_device
 from mlagents.plugins.ppo.running_mean import RunningMeanStd
 import mlagents.plugins.utils.logger as log
 
+from mlagents.plugins.utils.memory import cpuStats
+
 # dictionary of various activation function that are specified in the options
 activation_dict = {"tanh":torch.nn.Tanh(), "sigmoid":torch.nn.Sigmoid(),
                    "relu":torch.nn.ReLU(), "leakyrelu":torch.nn.LeakyReLU(),
@@ -83,13 +85,13 @@ class Discriminator(torch.nn.Module):
         :returns reward: the reward for being able to fool the discriminator
         """
 
-        self.running_mean_std_fake.update(input)
+        # self.running_mean_std_fake.update(input)
         input = (input - self.running_mean_std_fake.mean)/self.running_mean_std_fake.var
 
         # reward from discriminator :
         temp = 1-0.25*(self.forward(input)-1)**2
         reward = torch.maximum(temp, torch.zeros_like(temp))
-        self.cumul_g_reward += reward
+        self.cumul_g_reward += reward.detach()
         return reward
 
     def D_loss(self, real_input, fake_input):
@@ -106,7 +108,7 @@ class Discriminator(torch.nn.Module):
         # normalize input 
         self.running_mean_std_real.update(real_input)
         self.running_mean_std_fake.update(fake_input)
-        fake_input = (fake_input - self.running_mean_std_real.mean)/self.running_mean_std_real.var
+        real_input = (real_input - self.running_mean_std_real.mean)/self.running_mean_std_real.var
         fake_input = (fake_input - self.running_mean_std_fake.mean)/self.running_mean_std_fake.var
 
         # generate label vector which contains 1 or -1 for LSGAN
@@ -118,7 +120,7 @@ class Discriminator(torch.nn.Module):
         loss_real = self.criterion_gan(real_estimation,label)
         
         # gradient penalty 
-        discriminator_gradient =torch.autograd.grad(loss_real, self.discrim.parameters(), retain_graph=True, create_graph=True)
+        discriminator_gradient = torch.autograd.grad(loss_real, self.discrim.parameters(), retain_graph=True, create_graph=True)
         grad_norm = 0
         for grad in discriminator_gradient:
             grad_norm += grad.pow(2).sum()
@@ -133,15 +135,17 @@ class Discriminator(torch.nn.Module):
         fake_estimation = self.forward(fake_input.float().detach()).squeeze()
         loss_fake = self.criterion_gan(fake_estimation, label)
         loss_fake.backward()
-        
-        self.cumul_d_loss += loss_real.detach() + loss_fake.detach() + grad_norm.detach()
+
+        self.cumul_d_loss += loss_real.detach().item() + loss_fake.detach().item() + grad_norm.detach().item()
+
+
 
     def optimize(self, real_input, fake_input):
         """
         Calculate the discriminator and generators losses. 
         Update the discriminator before using it to compute the generator's loss
         """
-        self.zero_grad()
+        self.discrim.zero_grad()
         self.D_loss(real_input, fake_input)
         self.optimizer.step()
 
