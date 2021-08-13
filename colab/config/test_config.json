@@ -1,0 +1,72 @@
+{
+    "comment1"              : "RL OPTIONS",
+    "batch_size"            : 50,      
+    "batch_size_discrim"    : 50,
+    "buffer_size"           : 200,       
+    "max_training_steps"    : 10000000,     
+    "K_epochs"              : 10,
+    "continuous_space"      : true,
+    "normalize"             : true,
+    "buffer_max_size"       : 200,
+    
+    "hidden_units_actor"    : [1024,512],
+    "num_layers_actor"      : 2,
+    "mid_activation_actor"  : "relu",
+    "last_activation_actor" : "identity",
+    
+    "hidden_units_critic"   : [1024,512],
+    "num_layers_critic"     : 2,
+    "mid_activation_critic" : "relu",
+    "last_activation_critic": "identity",
+    
+    "input_dim_discrim"      : 440,
+    "hidden_units_discrim"   : [1024,512],
+    "num_layers_discrim"     : 2,
+    "mid_activation_discrim" : "leakyrelu",
+    "last_activation_discrim": "tanh",
+    
+    "goal_factor"           : 0,
+    "style_factor"          : 2,
+    "grad_penalty_factor"   : 10,
+    "K_discrim"             : 1,
+    
+    "action_std"            : 0.8,       
+    "action_std_decay_rate" : 0.001,
+    "min_action_std"        : 0.2,
+    "action_std_decay_freq" : 20000,
+    
+    "eps_clip"              : 0.2,
+    "gamma"                 : 0.95,
+    "lambda"                : 0.95,
+    "advantage"             : "gae",
+    
+    "lr_actor"              : 0.00002,
+    "lr_critic"             : 0.0002,
+    "scheduler_gamma"       : 0.98,
+    "scheduler_step"        : 20,
+    "lr_discrim"            : 0.000005,
+    
+    "print_freq"            : 200,
+    "log_freq"              : 200,
+    "save_freq"             : 5,
+    
+    
+    "comment2"              : "SKELETON AWARE OPTIONS",
+    "sk_K_epochs"           : 100,
+    "sk_batch_size"         : 4,
+    "channel_base"          : 4,       
+    
+    "sk_g_lr"               : 0.0002,
+    "sk_d_lr"               : 0.0002,
+    
+    "kernel_size"           : 5,      
+    "sk_num_layers"         : 2,       
+    "num_neighbours"        : 2,       
+    "window_size"           : 16,
+    "drop_percentage"       : null,
+    
+    "sk_ee_factor"          : 1000,
+    "sk_adv_factor"         : 100,
+    "sk_rot_factor"         : 100,
+    "sk_root_velo_factor"   : 1
+    }      

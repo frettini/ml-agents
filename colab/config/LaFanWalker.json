@@ -1,7 +1,7 @@
 {
 "comment1"              : "RL OPTIONS",
 "batch_size"            : 256,      
-"batch_size_discrim"    : 128,
+"batch_size_discrim"    : 256,
 "buffer_size"           : 4096,       
 "max_training_steps"    : 10000000,     
 "K_epochs"              : 10,
@@ -44,7 +44,7 @@
 "lr_critic"             : 0.0002,
 "scheduler_gamma"       : 0.98,
 "scheduler_step"        : 20,
-"lr_discrim"            : 0.000005,
+"lr_discrim"            : 0.000001,
 
 "print_freq"            : 200,
 "log_freq"              : 200,
@@ -65,8 +65,9 @@
 "window_size"           : 16,
 "drop_percentage"       : null,
 
-"sk_ee_factor"          : 1000,
-"sk_adv_factor"         : 100,
-"sk_rot_factor"         : 100,
+"sk_ee_factor"          : 2,
+"sk_adv_factor"         : 0.25,
+"sk_rot_factor"         : 0,
+"sk_glob_velo_factor"   : 1,
 "sk_root_velo_factor"   : 1
 }      

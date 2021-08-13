@@ -42,12 +42,13 @@ if __name__ == "__main__":
     # usually faster for reinforcement learning problems
     set_torch_config(TorchSettings(device='cpu'))
     options = get_options('/config/LaFanWalker.json')
+    # options = get_options('/config/test_config.json')
     print("Default device : ", default_device())
 
     # filename = None enables to communicate directly with the unity editor
     env_file = "/myenv/" 
     env_file = os.path.dirname(os.path.abspath(__file__)) + env_file
-    env_file = None
+    # env_file = None
     if env_file is None:
         print("Env file is null, press play on the Editor to start the training.")
 
@@ -64,7 +65,7 @@ if __name__ == "__main__":
 
     # initialize model save path and logging path 
     model_path = "/models/"
-    log_path = "/runs/beans/smaller_example/"
+    log_path = "/runs/line_AMP/75_450/"
     model_dir, log_dir = paths_setup(model_path, log_path, list(env.behavior_specs)[0])
     log.init(log_dir)
 

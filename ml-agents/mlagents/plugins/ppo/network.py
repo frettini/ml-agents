@@ -85,7 +85,7 @@ class Discriminator(torch.nn.Module):
         :returns reward: the reward for being able to fool the discriminator
         """
 
-        self.running_mean_std_fake.update(input)
+        # self.running_mean_std_fake.update(input)
         input = (input - self.running_mean_std_fake.mean)/self.running_mean_std_fake.var
 
         # reward from discriminator :
@@ -106,8 +106,8 @@ class Discriminator(torch.nn.Module):
         """
 
         # normalize input 
-        self.running_mean_std_real.update(real_input.detach())
-        self.running_mean_std_fake.update(fake_input.detach())
+        self.running_mean_std_real.update(real_input)
+        self.running_mean_std_fake.update(fake_input)
         real_input = (real_input - self.running_mean_std_real.mean)/self.running_mean_std_real.var
         fake_input = (fake_input - self.running_mean_std_fake.mean)/self.running_mean_std_fake.var
 
@@ -126,10 +126,9 @@ class Discriminator(torch.nn.Module):
             grad_norm += grad.pow(2).sum()
         # grad_norm = grad_norm.sqrt()
         loss_real += (self.grad_pernalty_factor/2) * grad_norm
-        grad_norm=torch.tensor([1]).float()
         loss_real.backward()
 
-        self.cumul_grad_penalty += grad_norm.detach().item()
+        self.cumul_grad_penalty += grad_norm.detach()
 
         # do the same with the generator's poses
         label.fill_(self.fake_label)
@@ -146,7 +145,7 @@ class Discriminator(torch.nn.Module):
         Calculate the discriminator and generators losses. 
         Update the discriminator before using it to compute the generator's loss
         """
-        self.optimizer.zero_grad()
+        self.discrim.zero_grad()
         self.D_loss(real_input, fake_input)
         self.optimizer.step()
 

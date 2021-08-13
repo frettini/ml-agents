@@ -260,9 +260,14 @@ class UnityMotionDataset(torch.utils.data.Dataset):
         self.velocity_var = torch.where( self.velocity_var.double() < 1e-5, 1., self.velocity_var.double()).float()
         self.velocity_var = self.velocity_var ** (1/2)
 
-        # motion = self.to_skaware([0], [self.positions.shape[0]])
-        # self.skaware_mean = torch.mean(motion, dim=0)
-        # self.skaware_var = torch.var(motion, dim=0)
+        n_winds = self.positions.shape[0]//options["window_size"] - 1
+        start_inds = np.array(list(range(0,n_winds))) * options["window_size"]
+        motion = self.to_skaware(start_inds, start_inds+options["window_size"])
+        motion = motion.reshape(-1, self.skdata.num_joints*options["channel_base"])
+        self.skaware_mean = torch.mean(motion, dim=0)
+        self.skaware_var = torch.var(motion, dim=0)
+        self.skaware_var = torch.where( self.skaware_var.double() < 1e-5, 1., self.skaware_var.double()).float()
+        self.skaware_var = self.skaware_var ** (1/2)
 
     def __getitem__(self, index):
         """
@@ -322,7 +327,7 @@ class UnityMotionDataset(torch.utils.data.Dataset):
 
         return motion_data
     
-    def normalize(self, positions = None, rotations=None, velocity=None):
+    def normalize(self, positions = None, rotations=None, velocity=None, skaware_data=None):
         """
         Normalize the data passed. This is an inplace function which changes the variables passed
         to the function. 
@@ -334,7 +339,13 @@ class UnityMotionDataset(torch.utils.data.Dataset):
         if rotations is not None:
             rotations = (rotations - self.rotations_mean) / self.rotations_var
 
-    def denormalize(self, positions = None, rotations = None):
+        if velocity is not None:
+            velocity = (velocity - self.velocity_mean) / self.velocity_var
+
+        if skaware_data is not None:
+            skaware_data = (skaware_data - self.skaware_mean) / self.skaware_var
+
+    def denormalize(self, positions = None, rotations = None, velocity = None, skaware_data=None):
         """
         Normalize the data passed. This is an inplace function which changes the variables passed
         to the function. 
@@ -344,6 +355,12 @@ class UnityMotionDataset(torch.utils.data.Dataset):
 
         if rotations is not None:
             rotations = rotations * self.rotations_var + self.rotations_mean
+
+        if velocity is not None:
+            velocity = velocity * self.velocity_var + self.velocity_mean
+
+        if skaware_data is not None:
+            skaware_data = skaware_data * self.skaware_var + self.skaware_mean
 
 
 class SkeletonInfo:

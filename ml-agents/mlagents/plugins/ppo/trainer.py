@@ -81,23 +81,15 @@ class AMPTainer():
 
             # step through the simulation and gather the trajectory
             self.get_trajectory()
-            print("[DEBUG] Traj")
-            cpuStats()
 
             # get the style reward from the discriminator
             self.compute_style_reward()
-            print("[DEBUG] Style")
-            cpuStats()
 
             # update the discriminator 
             self.discrim_update()
-            print("[DEBUG] Discrim")
-            cpuStats()
             
             # update the policy using the collected buffer
             self.ppo_agent.batch_update()
-            print("[DEBUG] PPO")
-            cpuStats()
 
             print("Ep {} finished with cumulated reward {} \t average reward {}".format(epoch, self.cumulated_reward, self.cumulated_reward/self.options["buffer_size"]))
             # log.writer.add_scalar("Reward/Cumulated_Reward",self.cumulated_reward, self.cumulated_training_steps)
@@ -274,7 +266,10 @@ class AMPTainer():
             #rand_ind = np.random.randint(80, 1300 - (batch_size+1)) # TODO: remove hardcoded values
             # adv_motion = self.adv_dataset[rand_ind:rand_ind+batch_size+1]
 
-            rand_ind = np.random.randint(50,225 - 1, batch_size)
+            rand_ind = np.random.randint(0,275, batch_size)
+            rand_ind[rand_ind < 175] += 75
+            rand_ind[rand_ind > 175] += 175
+
             adv_motion_curr = self.adv_dataset[rand_ind]
             adv_motion_next = self.adv_dataset[rand_ind+1]
             adv_motion = (adv_motion_curr, adv_motion_next)
@@ -294,15 +289,12 @@ class AMPTainer():
             fake_input = self.buffer_to_discrim(buffer_batch)
 
             # add to buffer, then randomly sample from buffer
-            self.discrim_buffer.add(fake_input.detach())
+            self.discrim_buffer.add(fake_input)
             rand_ind = np.random.randint(0, self.discrim_buffer.max_ind, batch_size)
             fake_input = self.discrim_buffer[rand_ind]
 
             # pass in the data to the discriminator so that it can update itself
             self.discrim.optimize(real_input.float(), fake_input.float())
-
-            print("[DEBUG] optimize")
-            cpuStats()
 
         log.writer.add_scalar("Losses/Discriminator", self.discrim.cumul_d_loss/self.options["K_discrim"], self.cumulated_training_steps)
         log.writer.add_scalar("Losses/Grad_Penalty", self.discrim.cumul_grad_penalty/self.options["K_discrim"], self.cumulated_training_steps)
@@ -430,7 +422,7 @@ class DiscrimBuffer():
 # offsets = offsets.repeat(rotations.shape[0],1,1)
 
 # _, pos_from_rot = utils.quat_fk(rotations, offsets, self.skdata.parents)
-# skeletons_plot([local_positions[0].cpu().detach(), pos_from_rot[0].cpu().detach()], [self.skdata.edges,self.skdata.edges], ['g', 'b'], limits=limits, return_plot=False)
+# skeletons_plot([local_positions[0].cpu().detach()], [self.skdata.edges,self.skdata.edges], ['g', 'b'], limits=limits, return_plot=False)
 
 # anim = motion_animation([pos_from_rot[0].cpu().detach(), local_positions[0].cpu().detach()], [self.skdata.edges, self.skdata.edges], ['g', 'b'], limits)
 # HTML(anim.to_jshtml())
