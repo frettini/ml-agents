@@ -522,7 +522,8 @@ def get_pos_info_from_raw(input_data : torch.Tensor, skdata, options, norm_rot=F
 
     # transform res shape from [batch_size, (rotations+glob_pos+1), window_size]
     # to [batch_size, window_size, n_joints, n_channel]
-    input_data = input_data.permute(0,2,1).reshape(curr_batch_size, options['window_size'], -1, options['channel_base'])
+    # input_data = input_data.permute(0,2,1).reshape(curr_batch_size, options['window_size'], -1, options['channel_base'])
+    input_data = input_data.reshape(curr_batch_size, options['window_size'], -1, options['channel_base'])
 
     # and offsets to [batch_size, window_size, n_joints, 3]
     offsets = skdata.offsets.reshape(1, 1, skdata.offsets.shape[0], skdata.offsets.shape[1])
@@ -558,7 +559,7 @@ def get_pos_info_from_raw(input_data : torch.Tensor, skdata, options, norm_rot=F
 
     # go from local coordinate to global coordinate
     glob_rotation = rotation[...,0:1,:].repeat(1,1,skdata.num_joints,1)
-    velocity_global[:,:,0:1,:] = root_velocity/100 # TODO: remove the hardcoded scale
+    velocity_global[:,:,0:1,:] = root_velocity # TODO: remove the hardcoded scale
     velocity_local = velocity_global
     velocity_local = quat_mul_vec(quat_inv(glob_rotation),velocity_global.float())
     

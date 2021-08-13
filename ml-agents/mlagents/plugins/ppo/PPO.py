@@ -435,6 +435,8 @@ class PPO:
         # returns = torch.tensor(returns).float()
         adv = returns - values[:-1]
         adv = adv - adv.mean() / (adv.std() + 1e-7)
+        adv = torch.clip(adv, -self.options["clip_norm_adv"], -self.options["clip_norm_adv"])
+
         return adv, returns
 
     def montecarlo_return(self, state_values, batch_buffer):
@@ -469,7 +471,6 @@ class PPO:
                           'running_std' : self.policy_old.running_mean_std.var}
 
         torch.save(save_model_dict, checkpoint_path)
-
 
     def load(self, checkpoint_path):
         

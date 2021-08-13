@@ -32,6 +32,7 @@ class SkeletonConv(torch.nn.Module):
         self.padding_mode = padding_mode
         self._padding_repeated_twice = (padding, padding)
 
+        # expand the neighbour list to the number of channels per joint
         for neighbour in neighbour_list:
             expanded = []
             for k in neighbour:

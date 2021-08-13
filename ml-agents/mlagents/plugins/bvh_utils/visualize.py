@@ -96,7 +96,7 @@ def two_skeleton_plot(points_sk1, points_sk2, edges_sk1, edges_sk2, color1, colo
 
     plt.show()
 
-def skeletons_plot(points_list, edges_list, colors_list, limits=None, save_filename = None, return_plot=False):
+def skeletons_plot(points_list, edges_list, colors_list, limits=[[-1,1],[-1,1],[-1,1]], save_filename = None, return_plot=False):
     """
     Plots a graph of point in 3D. 
     This function can plot as many skeleton as needed by having points, edges, and

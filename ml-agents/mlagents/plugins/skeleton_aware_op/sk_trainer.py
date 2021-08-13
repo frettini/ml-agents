@@ -2,20 +2,69 @@ from mlagents.torch_utils import torch, default_device
 import random
 
 from mlagents.plugins.dataset.dataset import  UnityMotionDataset, SkeletonInfo
-from mlagents.plugins.skeleton_aware_op.autoencoder_temporal import StaticEncoder, AE, Encoder, Decoder
+from mlagents.plugins.skeleton_aware_op.autoencoder_temporal import StaticEncoder, Encoder, Decoder
 from mlagents.plugins.skeleton_aware_op.discriminator_temporal import Discriminator
-from mlagents.plugins.skeleton_aware_op.loss import calc_chain_velo_loss, calc_ee_loss
 from mlagents.plugins.bvh_utils import lafan_utils as utils
-from mlagents.plugins.bvh_utils import BVH_mod as BVH
 import mlagents.plugins.utils.logger as log 
 
-
 from mlagents.plugins.bvh_utils.visualize import skeletons_plot, motion_animation
-from torch.utils.tensorboard import SummaryWriter
 
 import matplotlib.pyplot as plt
-from mpl_toolkits.mplot3d import art3d
 import numpy as np
+
+class Retargetter():
+    def __init__(self, options, skdata_input, skdata_output):
+        
+        self.device = default_device()
+
+        self.skdata_input = skdata_input
+        self.skdata_output = skdata_output
+
+        # Retargetter initialization
+        self.encoder_sim = Encoder(self.skdata_input.edges, options)
+        # use the initialization of encoder_data to get the correct pooling lists
+        self.encoder_data = Encoder(self.skdata_output.edges, options) 
+        self.decoder_data = Decoder(self.encoder_data, options)
+
+        self.static_encoder_sim = StaticEncoder(self.skdata_input.edges, options).to(self.device)
+        self.static_encoder_data = StaticEncoder(self.skdata_output.edges, options).to(self.device)
+
+    def retarget(self, input_motion):
+        """
+        Retarget the motion from window frames from one window to another. 
+        This function assumes that the data is already normalized, and expects the user 
+        to denormalize the output data. This is done so that the retargetting function 
+        doesn't have to hold the datasets.
+        :params input_motion: [batch_size, window_size, n_joints*channel_size] tensor 
+        :returns res: [batch_size, window_size, n_joints*channel_size] tensor of the retargetted rotations
+        """
+
+        # first get the offsets from the static encoder 
+        deep_offsets_sim = self.static_encoder_sim(self.skdata_input.offsets.reshape(1, self.skdata_input.offsets.shape[0], -1))
+        deep_offsets_output = self.static_encoder_data(self.skdata_output.offsets.reshape(1, self.skdata_output.offsets.shape[0], -1))
+
+        motion = input_motion.permute(0,2,1)
+        latent = self.encoder_sim(motion, deep_offsets_sim)
+        res = self.decoder_data(latent, deep_offsets_output)
+        res = res.permute(0,2,1)
+
+        return res
+
+    def save(self, model_path):
+        state_dict = {'encoder_sim' : self.encoder_sim.state_dict(),
+                      'encoder_data': self.encoder_data.state_dict(),
+                      'decoder_data': self.decoder_data.state_dict(),
+                      'static_encoder_sim' : self.static_encoder_sim.state_dict(),
+                      'static_encoder_data': self.static_encoder_data.state_dict()}
+        torch.save(state_dict, model_path)
+
+    def load(self, model_path):
+        state_dict = torch.load(model_path, map_location=lambda storage, loc: storage)
+        self.encoder_sim.load_state_dict(state_dict['encoder_sim'])
+        self.encoder_data.load_state_dict(state_dict['encoder_data'])
+        self.decoder_data.load_state_dict(state_dict['decoder_data'])
+        self.static_encoder_sim.load_state_dict(state_dict['static_encoder_sim'])
+        self.static_encoder_data.load_state_dict(state_dict['static_encoder_data'])
 
 
 class Sk_Trainer():
@@ -33,21 +82,13 @@ class Sk_Trainer():
         self.input_limits = None
         self.adv_limits = None
 
-        # Initialize the main functions
+        # Initialize the Discriminator and Retargetter
         self.discriminator = Discriminator(self.skdata_adv.edges, options).to(self.device)
-
-        # Retargetter initialization
-        self.encoder_sim = Encoder(self.skdata_input.edges, options)
-        # use the initialization of encoder_data to get the correct pooling lists
-        self.encoder_data = Encoder(self.skdata_adv.edges, options) 
-        self.decoder_data = Decoder(self.encoder_data, options)
-
-        self.static_encoder_sim = StaticEncoder(self.skdata_input.edges, options).to(self.device)
-        self.static_encoder_data = StaticEncoder(self.skdata_adv.edges, options).to(self.device)
+        self.retargetter = Retargetter(options, self.skdata_input, self.skdata_adv)
 
         # Optimizers concatenate parameters used for pose generation
-        gen_parameters = list(self.encoder_sim.parameters()) + list(self.decoder_data.parameters()) \
-            + list(self.static_encoder_sim.parameters()) + list(self.static_encoder_data.parameters())
+        gen_parameters = list(self.retargetter.encoder_sim.parameters()) + list(self.retargetter.decoder_data.parameters()) \
+            + list(self.retargetter.static_encoder_sim.parameters()) + list(self.retargetter.static_encoder_data.parameters())
 
         self.gen_optimizer = torch.optim.Adam(gen_parameters, lr=self.options["sk_g_lr"], betas=(0.9, 0.999))
         self.discrim_optimizer = torch.optim.Adam(self.discriminator.parameters(), lr=self.options["sk_d_lr"], betas=(0.9, 0.999))
@@ -68,31 +109,40 @@ class Sk_Trainer():
         self.G_cumul = self.G_loss_adv_cumul = self.G_loss_ee_cumul = self.G_loss_velo_cumul = self.G_loss_glob_cumul = 0
         self.D_cumul = self.D_real_cumul = self.D_fake_cumul = 0
 
-    def train(self):
+    def train(self, print_skeleton=False):
+        """
+        Main train loop for the retargetting function.
+        """
+
+        # do the job of a dataloader (shuffle and load only once each data point)
+        # by hand because our dataset class cannot comply with the dataloader format.
+        # get length of effective dataset
+        if self.input_limits is not None:
+            length = self.input_limits[1] - self.input_limits[0]
+        else:
+            length = len(self.input_dataset)
+            
+        # get the number of windows in the dataset (with overlap thus //2), generate shuffled list 
+        n_windows = length // (self.options["window_size"]//2) - 1
+        wind_indices = np.array(list(range(n_windows)), dtype=np.int32) * (self.options["window_size"]//2)
+        random.shuffle(wind_indices)
         
+        # separate the data in train and test batches
+        ind_split = int(len(wind_indices) * 0.8)
+        train_indices  = wind_indices[:ind_split]
+        test_indices = wind_indices[ind_split:]
+        n_loop = len(train_indices) // self.options["sk_batch_size"]
+
         for ep in range(self.options["sk_K_epochs"]):
             print('Epoch : ', ep)
 
-            # do the job of a dataloader (shuffle and load only once each data point)
-            # by hand because our dataset class cannot comply with the dataloader format.
-            # get length of effective dataset
-            if self.input_limits is not None:
-                length = self.input_limits[1] - self.input_limits[0]
-            else:
-                length = len(self.input_dataset)
-                
-            # get the number of windows in the dataset (with overlap thus //2)
-            n_windows = length // (self.options["window_size"]//2) - 1
-            # generate a list of indices and shuffle them
-            wind_indices = np.array(list(range(n_windows)), dtype=np.int32) * (self.options["window_size"]//2)
-            random.shuffle(wind_indices)
-            # determine how many loops can be done in batches with the available indices list
-            n_loop = len(wind_indices) // self.options["sk_batch_size"]
+            # at every epoch shuffle the batches around
+            random.shuffle(train_indices)
 
             for i in range(n_loop):
                 
                 # get start and end indices of each batch, then load data 
-                start_inds = wind_indices[i*self.options["sk_batch_size"]:(i+1)*self.options["sk_batch_size"]] 
+                start_inds = train_indices[i*self.options["sk_batch_size"]:(i+1)*self.options["sk_batch_size"]] 
                 end_inds = start_inds + self.options["window_size"]
 
                 # reshape motion to [batch_size, window_size, n_joints*channel_size]
@@ -103,30 +153,14 @@ class Sk_Trainer():
                 randinds = np.random.randint(0,len(self.adv_dataset) - self.options["window_size"], curr_batch_size)
                 real_motion = self.adv_dataset.to_skaware(randinds, randinds + self.options["window_size"])
 
-                # perform retargeting
-                output_motion = self.retarget(motion)
-
-                # extract global position, root velocity,  
-                # TODO: Changed get_pos_info_from_raw definition to take in offsets as a 2d data [num_joints, 3]
-                fake_data = utils.get_pos_info_from_raw(output_motion, self.skdata_input, self.options, norm_rot=True)
-                fake_pos, fake_pos_local, fake_glob, fake_glob_velo, fake_vel, _ = fake_data
-
-                real_data = utils.get_pos_info_from_raw(real_motion, self.skdata_adv, self.options, norm_rot=True)
-                real_pos, real_pos_local, real_glob, real_glob_velo, real_vel, _ = real_data
-
-                motion_data = utils.get_pos_info_from_raw(motion, self.skdata_input, self.options, norm_rot=False )
-                input_pos, input_pos_local, input_glob, input_glob_velo, input_vel, _ = motion_data
+                fake_motion_data, real_motion_data, input_motion_data = self.retarget(motion, real_motion)
 
                 # the GAN update code is mostly taken from :
                 #https://pytorch.org/tutorials/beginner/dcgan_faces_tutorial.html#loss-functions-and-optimizers
-                # update discriminator 
-                self.update_discriminator(real_pos, fake_pos, isTest = False)
-                
-                # UPDATE GENERATOR NETWORK
-                # auto_encoder.zero_grad()
-                self.update_generator(motion_data, fake_data, isTest = False)
+                self.update_discriminator(real_motion_data[1], fake_motion_data[1], isTest = False)
+                self.update_generator(input_motion_data, fake_motion_data, isTest = False)
 
-                if(i % 10 == 0):
+                if(i % 20 == 0):
                     print("Batch : {}, Discriminator loss: {}, Generator loss : {}".format(i, self.D_cumul, self.G_cumul))
 
         
@@ -144,28 +178,68 @@ class Sk_Trainer():
             self.G_cumul = self.G_loss_adv_cumul = self.G_loss_ee_cumul  = self.G_loss_velo_cumul = self.G_loss_glob_cumul = 0
             self.D_cumul = self.D_real_cumul = self.D_fake_cumul = 0   
 
-    def retarget(self, motion):
+            # Record test losses
+            with torch.no_grad():
+                # Test
+                # get some random samples from both the test and train data and get the loss and print results
+                test_size = len(test_indices)
+                # test_input_inds = np.random.randint(0,len(self.input_dataset) - self.options["window_size"], test_size)
+                test_adv_inds = np.random.randint(0,len(self.adv_dataset) - self.options["window_size"], test_size)
+                motion = self.input_dataset.to_skaware(test_indices, test_indices + self.options["window_size"])
+                real_motion = self.adv_dataset.to_skaware(test_adv_inds, test_adv_inds + self.options["window_size"])
+
+
+                fake_motion_data, real_motion_data, input_motion_data = self.retarget(motion, real_motion)
+                self.update_discriminator(real_motion_data[1], fake_motion_data[1], isTest = True)
+                self.update_generator(input_motion_data, fake_motion_data, isTest = True)
+
+                if print_skeleton is True:
+                    batch_ind = np.random.randint(0, test_size)
+                    frame_ind = np.random.randint(0, self.options["window_size"])
+                    # skeletons_plot([input_motion_data[1][batch_ind,frame_ind], fake_motion_data[1][batch_ind,frame_ind]],
+                    #                 [self.skdata_input.edges, self.skdata_adv.edges], 
+                    #                 colors_list=['g','r','b'], )
+                    skeletons_plot([input_motion_data[1][batch_ind,frame_ind]],
+                                    [self.skdata_input.edges], 
+                                    colors_list=['g'] )
+                    skeletons_plot([fake_motion_data[1][batch_ind,frame_ind]],
+                                    [self.skdata_adv.edges], 
+                                    colors_list=['r'], )
+                    skeletons_plot([real_motion_data[1][batch_ind,frame_ind]],
+                                    [self.skdata_adv.edges], 
+                                    colors_list=['b'], )
+
+                N = 1
+                log.writer.add_scalar('Test/Discriminator/D_loss', self.D_cumul/N, ep)
+                log.writer.add_scalar('Test/Discriminator/D_real', self.D_real_cumul/N, ep)
+                log.writer.add_scalar('Test/Discriminator/D_fake', self.D_fake_cumul/N, ep)
+
+                log.writer.add_scalar('Test/AE/G_loss',    self.G_cumul/N, ep)
+                log.writer.add_scalar('Test/AE/adv_loss',  self.G_loss_adv_cumul/N, ep)
+                log.writer.add_scalar('Test/AE/ee_loss',   self.G_loss_ee_cumul/N, ep)
+                log.writer.add_scalar('Test/AE/velo_loss', self.G_loss_velo_cumul/N, ep)
+                log.writer.add_scalar('Test/AE/glob_loss', self.G_loss_glob_cumul/N, ep)
+            
+                self.G_cumul = self.G_loss_adv_cumul = self.G_loss_ee_cumul  = self.G_loss_velo_cumul = self.G_loss_glob_cumul = 0
+                self.D_cumul = self.D_real_cumul = self.D_fake_cumul = 0   
+
+    def retarget(self, input_motion, real_motion):
         """
-        Retarget the motion from window frames from one window to another 
+        Wrapper around the retargetter retargeting function which takes care of all the data processing
+        needed to then compute the losses
         """
 
-        # motion should have shape [batch_size, window_size, n_joints*channel_size]
+        # perform retargeting
+        self.input_dataset.normalize(skaware_data = input_motion)
+        output_motion = self.retargetter.retarget(input_motion)
+        self.adv_dataset.denormalize(skaware_data = output_motion)
 
-        # first get the offsets from the static encoder 
-        # deep_offsets = static_encoder(torch.tensor(anim.offsets[np.newaxis, :,:]).float())
-        deep_offsets_sim = self.static_encoder_sim(self.skdata_input.offsets.reshape(1, self.skdata_input.offsets.shape[0], -1))
-        deep_offsets_output = self.static_encoder_data(self.skdata_adv.offsets.reshape(1, self.skdata_adv.offsets.shape[0], -1))
+        # extract global position, root velocity,  
+        fake_data = utils.get_pos_info_from_raw(output_motion, self.skdata_input, self.options, norm_rot=True)
+        real_data = utils.get_pos_info_from_raw(real_motion, self.skdata_adv, self.options, norm_rot=False)
+        input_motion_data = utils.get_pos_info_from_raw(input_motion, self.skdata_input, self.options, norm_rot=False )
 
-        self.input_dataset.normalize(skaware_data = motion)
-
-        motion = motion.permute(0,2,1)
-        latent = self.encoder_sim(motion, deep_offsets_sim)
-        res = self.decoder_data(latent, deep_offsets_output)
-
-        res = res.permute(0,2,1)
-        self.adv_dataset.denormalize(skaware_data = res)
-
-        return res
+        return fake_data, real_data, input_motion_data
 
     def update_generator(self, input_data, output_data, isTest = False):
         """
@@ -177,10 +251,7 @@ class Sk_Trainer():
 
         # UPDATE GENERATOR NETWORK
         if not isTest:
-            self.encoder_sim.zero_grad()
-            self.decoder_data.zero_grad()
-            self.static_encoder_sim.zero_grad()
-            self.static_encoder_data.zero_grad()
+            self.gen_optimizer.zero_grad()
 
         input_pos, input_pos_local, input_root_rotation, input_glob_velo, input_vel, _ = input_data
         output_pos, output_pos_local, output_root_rotation, output_glob_velo, output_vel, _ = output_data
@@ -188,7 +259,7 @@ class Sk_Trainer():
         curr_batch_size = input_pos.shape[0]
         
         # Adversial Loss, use real labels to maximize log(D(G(x))) instead of log(1-D(G(x)))
-        loss_adv = self.discriminator.G_loss(output_pos)
+        loss_adv = self.discriminator.G_loss(output_pos_local)
 
         # Gobal, Velocity and End Effector Losses
         loss_rot = self.criterion_global_rotation(output_root_rotation, input_root_rotation)
