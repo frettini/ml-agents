@@ -74,7 +74,8 @@ class Discriminator(torch.nn.Module):
 
     def forward(self, input):
         output = self.discrim(input)
-        return torch.sigmoid(output)
+        # return torch.sigmoid(output)
+        return output
 
     def G_reward(self, input):
         """
@@ -86,7 +87,7 @@ class Discriminator(torch.nn.Module):
         """
 
         # self.running_mean_std_fake.update(input)
-        input = (input - self.running_mean_std_fake.mean)/self.running_mean_std_fake.var
+        # input = (input - self.running_mean_std_fake.mean)/self.running_mean_std_fake.var
 
         # reward from discriminator :
         temp = 1-0.25*(self.forward(input)-1)**2
@@ -106,10 +107,10 @@ class Discriminator(torch.nn.Module):
         """
 
         # normalize input 
-        self.running_mean_std_real.update(real_input)
-        self.running_mean_std_fake.update(fake_input)
-        real_input = (real_input - self.running_mean_std_real.mean)/self.running_mean_std_real.var
-        fake_input = (fake_input - self.running_mean_std_fake.mean)/self.running_mean_std_fake.var
+        # self.running_mean_std_real.update(real_input)
+        # self.running_mean_std_fake.update(fake_input)
+        # real_input = (real_input - self.running_mean_std_real.mean)/self.running_mean_std_real.var
+        # fake_input = (fake_input - self.running_mean_std_fake.mean)/self.running_mean_std_fake.var
 
         # generate label vector which contains 1 or -1 for LSGAN
         curr_batch_size = real_input.shape[0]
