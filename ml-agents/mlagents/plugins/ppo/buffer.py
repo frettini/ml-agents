@@ -13,6 +13,7 @@ class RolloutBuffer:
         self.logprobs = []
         self.rewards = []
         self.is_terminals = []
+        self.values = []
     
 
     def clear(self):
@@ -21,6 +22,7 @@ class RolloutBuffer:
         del self.logprobs[:]
         del self.rewards[:]
         del self.is_terminals[:]
+        del self.values[:]
 
     def extend(self, buffer : 'RolloutBuffer'):
         self.actions.extend(buffer.actions)
@@ -28,6 +30,7 @@ class RolloutBuffer:
         self.logprobs.extend(buffer.logprobs)
         self.rewards.extend(buffer.rewards)
         self.is_terminals.extend(buffer.is_terminals)
+        self.values.extend(buffer.values)
 
     def to_numpy(self):
         """
@@ -39,8 +42,9 @@ class RolloutBuffer:
         rewards = np.array(self.rewards, dtype=np.float32)
         logprobs = np.array(self.logprobs, dtype=np.float32)
         is_terminals = np.array(self.is_terminals, dtype=np.float32)
+        values = np.array(self.values, dtype = np.float32)
 
-        return actions, states, rewards, logprobs, is_terminals
+        return actions, states, rewards, logprobs, is_terminals, values
 
     def __len__(self):
         return len(self.actions)
@@ -53,5 +57,6 @@ class RolloutBuffer:
         sliced_buffer.rewards = self.rewards[index]
         sliced_buffer.logprobs = self.logprobs[index]
         sliced_buffer.is_terminals = self.is_terminals[index]
+        sliced_buffer.values = self.values[index]
 
         return sliced_buffer 

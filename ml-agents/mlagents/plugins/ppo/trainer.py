@@ -44,7 +44,7 @@ class AMPTainer():
         self.scale = 100
 
         # INIT DISCRIMINATOR
-        self.discrim = Discriminator(options)
+        self.discrim = Discriminator(options, self.ppo_agent.policy.running_mean_std, self.adv_dataset)
         self.features_per_joints=13
 
 
@@ -129,7 +129,7 @@ class AMPTainer():
 
                 # collect for the terminal step too
                 obs = terminal_steps.obs[0] # [num_agent, obs_dim]
-                action, act_logprob = self.ppo_agent.batch_select_action(obs) #[num_agent, act_dim]
+                action, act_logprob, state_values = self.ppo_agent.batch_select_action(obs) #[num_agent, act_dim]
 
                 obs = torch.tensor(obs, requires_grad=False).float().to(self.device)
 
@@ -139,10 +139,11 @@ class AMPTainer():
                 self.agent_buffers[agent_ind].states.append(obs[index,:])
                 self.agent_buffers[agent_ind].actions.append(action[index,:])
                 self.agent_buffers[agent_ind].logprobs.append(act_logprob[index])
+                self.agent_buffers[agent_ind].values.append(state_values[index])
             
             # get next action for all observations 
             obs = decision_steps.obs[0] # [num_agent, obs_dim]
-            action, act_logprob = self.ppo_agent.batch_select_action(obs) #[num_agent, act_dim]
+            action, act_logprob, state_values = self.ppo_agent.batch_select_action(obs) #[num_agent, act_dim]
             
             # retriave information from agents who require a decision
             for agent_ind in decision_steps:
@@ -160,6 +161,7 @@ class AMPTainer():
                 self.agent_buffers[agent_ind].states.append(obs[index,:])
                 self.agent_buffers[agent_ind].actions.append(action[index,:])
                 self.agent_buffers[agent_ind].logprobs.append(act_logprob[index])
+                self.agent_buffers[agent_ind].values.append(state_values[index])
 
             # generate action, pass it to the environment and step the simulation
             action_tuple = ActionTuple()
@@ -297,8 +299,12 @@ class AMPTainer():
             self.discrim.optimize(real_input.float(), fake_input.float())
 
         log.writer.add_scalar("Losses/Discriminator", self.discrim.cumul_d_loss/self.options["K_discrim"], self.cumulated_training_steps)
+        log.writer.add_scalar("Losses/Discriminator_Real", self.discrim.cumul_d_real_loss/self.options["K_discrim"], self.cumulated_training_steps)
+        log.writer.add_scalar("Losses/Discriminator_Fake", self.discrim.cumul_d_fake_loss/self.options["K_discrim"], self.cumulated_training_steps)
         log.writer.add_scalar("Losses/Grad_Penalty", self.discrim.cumul_grad_penalty/self.options["K_discrim"], self.cumulated_training_steps)
         self.discrim.cumul_d_loss = 0
+        self.discrim.cumul_d_real_loss = 0
+        self.discrim.cumul_d_fake_loss = 0
         self.discrim.cumul_grad_penalty = 0
 
     def buffer_to_discrim(self, batch):
