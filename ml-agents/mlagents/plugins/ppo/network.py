@@ -114,7 +114,6 @@ class Discriminator(torch.nn.Module):
         
         :returns d_loss: The discriminator output
         """
-
         # normalize input 
         # self.running_mean_std_real.update(real_input)
         # self.running_mean_std_fake.update(fake_input)
@@ -133,20 +132,23 @@ class Discriminator(torch.nn.Module):
         discriminator_gradient = torch.autograd.grad(loss_real, self.discrim.parameters(), retain_graph=True, create_graph=True)
         grad_norm = 0
         for grad in discriminator_gradient:
-            grad_norm += grad.pow(2).sum()
+            grad_norm = grad_norm + grad.pow(2).sum()
         grad_norm = grad_norm.sqrt()
+
+        self.cumul_d_real_loss += loss_real.detach()
         # loss_real += (self.grad_pernalty_factor/2) * grad_norm
-        loss_real.backward()
+        # loss_real.backward()
 
         self.cumul_grad_penalty += grad_norm.detach()
 
         # do the same with the generator's poses
-        label.fill_(self.fake_label)
+        label = torch.full((curr_batch_size,), self.fake_label, dtype=torch.float, device=default_device())
         fake_estimation = self.forward(fake_input.float().detach()).squeeze()
         loss_fake = self.criterion_gan(fake_estimation, label)
-        loss_fake.backward()
+        # loss_fake.backward()
+        d_loss = loss_real + loss_fake + (self.grad_pernalty_factor / 2) * grad_norm 
+        d_loss.backward()
 
-        self.cumul_d_real_loss += loss_real.detach()
         self.cumul_d_fake_loss += loss_fake.detach()
         self.cumul_d_loss += loss_real.detach().item() + loss_fake.detach().item() + grad_norm.detach().item()
 
