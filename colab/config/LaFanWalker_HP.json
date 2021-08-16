@@ -23,7 +23,7 @@
     "hidden_units_discrim"   : [1024,512],
     "num_layers_discrim"     : 2,
     "mid_activation_discrim" : "leakyrelu",
-    "last_activation_discrim": "tanh",
+    "last_activation_discrim": "identity",
     
     "goal_factor"           : 0.5,
     "style_factor"          : 1,
