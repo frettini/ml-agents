@@ -43,7 +43,7 @@ class MLPNet(torch.nn.Module):
 
 
 class Discriminator(torch.nn.Module):
-    def __init__(self, options):
+    def __init__(self, options, running_mean_std_fake, adv_dataset):
         """
         Discriminator which drives the adversarial loss of the reinforcement learning process
         The discriminator takes two frames features, concatenated together, as input
@@ -64,17 +64,27 @@ class Discriminator(torch.nn.Module):
         self.grad_pernalty_factor = options["grad_penalty_factor"]
 
         self.cumul_d_loss = 0
+        self.cumul_d_real_loss = 0
+        self.cumul_d_fake_loss = 0
         self.cumul_g_reward = 0
         self.cumul_grad_penalty = 0
 
         self.criterion_gan = torch.nn.MSELoss()
 
-        self.running_mean_std_real = RunningMeanStd(shape=options["input_dim_discrim"])
         self.running_mean_std_fake = RunningMeanStd(shape=options["input_dim_discrim"])
+        
+        self.running_mean_std_real = RunningMeanStd(shape=options["input_dim_discrim"])
+        real_mean = torch.cat((adv_dataset.positions_mean.reshape(-1), adv_dataset.rotations_mean.reshape(-1), adv_dataset.velocity_mean.reshape(-1)))
+        real_mean = torch.cat((real_mean, real_mean))
+        real_var = torch.cat((adv_dataset.positions_var.reshape(-1), adv_dataset.rotations_var.reshape(-1), adv_dataset.velocity_var.reshape(-1)))
+        real_var = torch.cat((real_var, real_var))
+        self.running_mean_std_real.mean = real_mean
+        self.running_mean_std_real.var = real_var
 
     def forward(self, input):
         output = self.discrim(input)
-        return torch.sigmoid(output)
+        # return torch.sigmoid(output)
+        return output
 
     def G_reward(self, input):
         """
@@ -85,7 +95,7 @@ class Discriminator(torch.nn.Module):
         :returns reward: the reward for being able to fool the discriminator
         """
 
-        # self.running_mean_std_fake.update(input)
+        self.running_mean_std_fake.update(input)
         input = (input - self.running_mean_std_fake.mean)/self.running_mean_std_fake.var
 
         # reward from discriminator :
@@ -106,8 +116,8 @@ class Discriminator(torch.nn.Module):
         """
 
         # normalize input 
-        self.running_mean_std_real.update(real_input)
-        self.running_mean_std_fake.update(fake_input)
+        # self.running_mean_std_real.update(real_input)
+        # self.running_mean_std_fake.update(fake_input)
         real_input = (real_input - self.running_mean_std_real.mean)/self.running_mean_std_real.var
         fake_input = (fake_input - self.running_mean_std_fake.mean)/self.running_mean_std_fake.var
 
@@ -124,8 +134,8 @@ class Discriminator(torch.nn.Module):
         grad_norm = 0
         for grad in discriminator_gradient:
             grad_norm += grad.pow(2).sum()
-        # grad_norm = grad_norm.sqrt()
-        loss_real += (self.grad_pernalty_factor/2) * grad_norm
+        grad_norm = grad_norm.sqrt()
+        # loss_real += (self.grad_pernalty_factor/2) * grad_norm
         loss_real.backward()
 
         self.cumul_grad_penalty += grad_norm.detach()
@@ -136,6 +146,8 @@ class Discriminator(torch.nn.Module):
         loss_fake = self.criterion_gan(fake_estimation, label)
         loss_fake.backward()
 
+        self.cumul_d_real_loss += loss_real.detach()
+        self.cumul_d_fake_loss += loss_fake.detach()
         self.cumul_d_loss += loss_real.detach().item() + loss_fake.detach().item() + grad_norm.detach().item()
 
 

@@ -23,10 +23,10 @@
 "hidden_units_discrim"   : [1024,512],
 "num_layers_discrim"     : 2,
 "mid_activation_discrim" : "leakyrelu",
-"last_activation_discrim": "tanh",
+"last_activation_discrim": "identity",
 
-"goal_factor"           : 0,
-"style_factor"          : 2,
+"goal_factor"           : 0.5,
+"style_factor"          : 1,
 "grad_penalty_factor"   : 10,
 "K_discrim"             : 1,
 
@@ -38,17 +38,18 @@
 "eps_clip"              : 0.2,
 "gamma"                 : 0.95,
 "lambda"                : 0.95,
-"advantage"             : "gae",
+"advantage"             : "montecarlo",
+"clip_norm_adv"         : 5,    
 
-"lr_actor"              : 0.00002,
-"lr_critic"             : 0.0002,
-"scheduler_gamma"       : 0.98,
-"scheduler_step"        : 20,
-"lr_discrim"            : 0.000001,
+"lr_actor"              : 0.000002,
+"lr_critic"             : 0.00001,
+"scheduler_gamma"       : 1,
+"scheduler_step"        : 50,
+"lr_discrim"            : 0.00002,
 
 "print_freq"            : 200,
 "log_freq"              : 200,
-"save_freq"             : 5,
+"save_freq"             : 50,
 
 
 "comment2"              : "SKELETON AWARE OPTIONS",

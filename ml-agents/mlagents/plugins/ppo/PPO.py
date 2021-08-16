@@ -193,8 +193,9 @@ class ActorCritic(torch.nn.Module):
 
         action = dist.sample()
         action_logprob = dist.log_prob(action)
+        state_values = self.critic(state)
         
-        return action.detach(), action_logprob.detach()
+        return action.detach(), action_logprob.detach(), state_values.detach()
 
     def evaluate(self, state, action):
         """
@@ -322,15 +323,15 @@ class PPO:
         if self.has_continuous_action_space:
             with torch.no_grad():
                 state = torch.FloatTensor(state).to(self.device)
-                action, logprobs = self.policy_old.act(state)
+                action, logprobs, values = self.policy.act(state)
 
-            return action, logprobs
+            return action, logprobs, values
         else:
             with torch.no_grad():
                 state = torch.FloatTensor(state).to(self.device)
-                action, logprobs = self.policy_old.act(state)
+                action, logprobs, values = self.policy.act(state)
 
-            return action, logprobs
+            return action, logprobs, values
 
     def batch_update(self):
 
@@ -352,14 +353,15 @@ class PPO:
                 old_states = torch.squeeze(torch.stack(batch_buffer.states, dim=0)).detach().to(self.device)
                 old_actions = torch.squeeze(torch.stack(batch_buffer.actions, dim=0)).detach().to(self.device)
                 old_logprobs = torch.squeeze(torch.stack(batch_buffer.logprobs, dim=0)).detach().to(self.device)
+                old_state_values = torch.squeeze(torch.stack(batch_buffer.values, dim=0)).detach().to(self.device)
 
                 # Evaluating old actions and values
                 logprobs, state_values, dist_entropy = self.policy.evaluate(old_states, old_actions)
-                _, old_state_values, _ = self.policy_old.evaluate(old_states, old_actions)
+                # _, old_state_values, _ = self.policy_old.evaluate(old_states, old_actions)
 
                 # match state_values tensor dimensions with rewards tensor
                 state_values = torch.squeeze(state_values)
-                old_state_values = torch.squeeze(old_state_values)
+                # old_state_values = torch.squeeze(old_state_values)
 
                 if self.options["advantage"] == "montecarlo":
                     advantages, returns = self.montecarlo_return(state_values, batch_buffer)
@@ -376,11 +378,15 @@ class PPO:
                 surr1 = ratios * advantages
                 surr2 = torch.clamp(ratios, 1-self.eps_clip, 1+self.eps_clip) * advantages
 
-                value_loss1 = self.MseLoss(state_values, returns)
-                value_loss2 = torch.maximum(torch.minimum(state_values, old_state_values + self.eps_clip), old_state_values-self.eps_clip)
-                value_loss3 = 0.5*torch.maximum(value_loss1, self.MseLoss(value_loss2, returns))
+                # value_loss1 = self.MseLoss(state_values, returns)
+                # value_loss2 = torch.maximum(torch.minimum(state_values, old_state_values + self.eps_clip), old_state_values-self.eps_clip)
+                # value_loss3 = 0.5*torch.maximum(value_loss1, self.MseLoss(value_loss2, returns))
+                clipped_value = old_state_values + (state_values - old_state_values).clamp(min=-self.eps_clip,
+                                                                              max=self.eps_clip)
+                value_loss1 = torch.max((state_values - returns) ** 2, (clipped_value - returns) ** 2)
+                value_loss3 = 0.5 * value_loss1.mean()
 
-                # value_loss = 0.5*self.MseLoss(state_values, returns)
+                # value_loss3 = 0.5*self.MseLoss(state_values, returns)
 
                 # final loss of clipped objective PPO
                 loss = -torch.min(surr1, surr2) + value_loss3 - 0.01*dist_entropy
@@ -433,8 +439,11 @@ class PPO:
             returns[i] = gae + values[i]
 
         # returns = torch.tensor(returns).float()
+        returns = (returns - returns.mean()) / (returns.std() + 1e-7)
         adv = returns - values[:-1]
-        adv = adv - adv.mean() / (adv.std() + 1e-7)
+        #adv = adv - adv.mean() / (adv.std() + 1e-7)
+        #adv = torch.clip(adv, -self.options["clip_norm_adv"], -self.options["clip_norm_adv"])
+
         return adv, returns
 
     def montecarlo_return(self, state_values, batch_buffer):
@@ -469,7 +478,6 @@ class PPO:
                           'running_std' : self.policy_old.running_mean_std.var}
 
         torch.save(save_model_dict, checkpoint_path)
-
 
     def load(self, checkpoint_path):
         
