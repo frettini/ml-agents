@@ -318,6 +318,7 @@ class UnityMotionDataset(torch.utils.data.Dataset):
             index.append(e[0])
         rotations = rotations[:,index, :]
         # concatenate the rotations, global pos and a padding together [n_windows, n_frames, joints*channel_base]
+        # self.skdata.num_joints += 1 # add plus one for test
         rotations_cat = rotations.reshape(n_windows, self.window_size, (self.skdata.num_joints-1) * self.channel_base)
 
         # get the global velocity:
