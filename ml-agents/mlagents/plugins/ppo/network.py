@@ -125,12 +125,13 @@ class Discriminator(torch.nn.Module):
         label = torch.full((curr_batch_size,), self.real_label, dtype=torch.float, device=default_device())
         
         # get the classification of real input and compare to labels
+        real_input.requires_grad=True
         real_estimation = self.forward(real_input).squeeze()
         loss_real = self.criterion_gan(real_estimation,label)
         
         # gradient penalty 
-        real_input.requires_grad=True
-        discriminator_gradient = torch.autograd.grad(real_estimation.mean(), self.discrim.parameters(),
+        discriminator_gradient = torch.autograd.grad(real_estimation, real_input,
+                                                    grad_outputs = torch.ones_like(real_estimation),
                                                     retain_graph=True, 
                                                     create_graph=True)
         grad_norm = 0

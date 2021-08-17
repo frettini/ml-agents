@@ -75,8 +75,8 @@ class Sk_Trainer():
         self.device = default_device()
 
         # Load Input and Adversarial Dataset
-        self.input_dataset = UnityMotionDataset(input_motion_path)
-        self.adv_dataset = UnityMotionDataset(adv_motion_path)
+        self.input_dataset = UnityMotionDataset(input_motion_path, options=options)
+        self.adv_dataset = UnityMotionDataset(adv_motion_path, options=options)
         self.skdata_input = self.input_dataset.skdata
         self.skdata_adv = self.adv_dataset.skdata
         self.input_limits = None
