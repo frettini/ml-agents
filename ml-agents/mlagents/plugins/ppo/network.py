@@ -125,11 +125,15 @@ class Discriminator(torch.nn.Module):
         label = torch.full((curr_batch_size,), self.real_label, dtype=torch.float, device=default_device())
         
         # get the classification of real input and compare to labels
+        real_input.requires_grad=True
         real_estimation = self.forward(real_input).squeeze()
         loss_real = self.criterion_gan(real_estimation,label)
         
         # gradient penalty 
-        discriminator_gradient = torch.autograd.grad(loss_real, self.discrim.parameters(), retain_graph=True, create_graph=True)
+        discriminator_gradient = torch.autograd.grad(real_estimation, real_input,
+                                                    grad_outputs = torch.ones_like(real_estimation),
+                                                    retain_graph=True, 
+                                                    create_graph=True)
         grad_norm = 0
         for grad in discriminator_gradient:
             grad_norm = grad_norm + grad.pow(2).sum()
@@ -146,11 +150,11 @@ class Discriminator(torch.nn.Module):
         fake_estimation = self.forward(fake_input.float().detach()).squeeze()
         loss_fake = self.criterion_gan(fake_estimation, label)
         # loss_fake.backward()
-        d_loss = loss_real + loss_fake + (self.grad_pernalty_factor / 2) * grad_norm 
+        d_loss = 0.5 * (loss_real + loss_fake) + (self.grad_pernalty_factor / 2) * grad_norm 
         d_loss.backward()
 
         self.cumul_d_fake_loss += loss_fake.detach()
-        self.cumul_d_loss += loss_real.detach().item() + loss_fake.detach().item() + grad_norm.detach().item()
+        self.cumul_d_loss += d_loss.detach()
 
 
 

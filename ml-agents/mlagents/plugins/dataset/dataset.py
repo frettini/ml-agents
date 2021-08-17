@@ -193,8 +193,9 @@ class UnityMotionDataset(torch.utils.data.Dataset):
     motion retargetting by using the to_skdata() function. 
     """
 
-    def __init__(self, input_path:str, skdata_sidechannel=None, frame_boundaries=None, device:str='cpu'):
-        options = get_options()
+    def __init__(self, input_path:str, skdata_sidechannel=None, frame_boundaries=None, device:str='cpu', options=None):
+        if options is None:
+            options = get_options()
         self.window_size = options['window_size']
         self.channel_base = options["channel_base"]
         torch.device(device)
@@ -265,7 +266,7 @@ class UnityMotionDataset(torch.utils.data.Dataset):
         n_winds = self.positions.shape[0]//options["window_size"] - 1
         start_inds = np.array(list(range(0,n_winds))) * options["window_size"]
         motion = self.to_skaware(start_inds, start_inds+options["window_size"])
-        motion = motion.reshape(-1, self.skdata.num_joints*options["channel_base"])
+        motion = motion.reshape(-1, (self.skdata.num_joints)*options["channel_base"])
         self.skaware_mean = torch.mean(motion, dim=0)
         self.skaware_var = torch.var(motion, dim=0)
         self.skaware_var = torch.where( self.skaware_var.double() < 1e-5, 1., self.skaware_var.double()).float()
@@ -313,16 +314,17 @@ class UnityMotionDataset(torch.utils.data.Dataset):
         # self.normalize(positions,rotations)
 
         # reshape rotations so that we provide the parent rotation (edge rotation)
-        index = []
-        for e in self.skdata.edges:
-            index.append(e[0])
-        rotations = rotations[:,index, :]
+        # index = []
+        # for e in self.skdata.edges:
+        #     index.append(e[0])
+        # rotations = rotations[:,index, :]
         # concatenate the rotations, global pos and a padding together [n_windows, n_frames, joints*channel_base]
-        rotations_cat = rotations.reshape(n_windows, self.window_size, (self.skdata.num_joints-1) * self.channel_base)
+        # self.skdata.num_joints += 1 # add plus one for test
+        # rotations_cat = rotations.reshape(n_windows, self.window_size, (self.skdata.num_joints) * self.channel_base)
 
         # get the global velocity:
         # velocity = utils.get_velocity(positions, self.skdata.frametime)
-        velocity = velocity.reshape(n_windows, self.window_size, self.skdata.num_joints * 3)
+        # velocity = velocity.reshape(n_windows, self.window_size, self.skdata.num_joints * 3)
         root_velocity = velocity[:,:,0:3]
 
         # limits = [[-1,1],[-1,1],[-1,1]]
@@ -335,7 +337,8 @@ class UnityMotionDataset(torch.utils.data.Dataset):
         # _, pos_from_rot = utils.quat_fk(rotations, offsets, self.skdata.parents)
         # skeletons_plot([local_positions[0].cpu().detach()], [self.skdata.edges,self.skdata.edges], ['g', 'b'], limits=limits, return_plot=False)
 
-        motion_data = torch.cat([rotations_cat, root_velocity.reshape(n_windows, self.window_size, -1), torch.zeros((n_windows, self.window_size,1))], axis=2)
+        motion_data = torch.cat((rotations, velocity), dim=2).reshape(n_windows, self.window_size, -1)
+        # motion_data = rotations_cat #torch.cat([rotations_cat, root_velocity.reshape(n_windows, self.window_size, -1), torch.zeros((n_windows, self.window_size,1))], axis=2)
 
         return motion_data
     

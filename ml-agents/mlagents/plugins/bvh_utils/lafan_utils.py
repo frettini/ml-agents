@@ -525,13 +525,10 @@ def get_pos_info_from_raw(input_data : torch.Tensor, skdata, options, norm_rot=F
     # input_data = input_data.permute(0,2,1).reshape(curr_batch_size, options['window_size'], -1, options['channel_base'])
     input_data = input_data.reshape(curr_batch_size, options['window_size'], -1, options['channel_base'])
 
-    # and offsets to [batch_size, window_size, n_joints, 3]
-    offsets = skdata.offsets.reshape(1, 1, skdata.offsets.shape[0], skdata.offsets.shape[1])
-    offsets = offsets.repeat(curr_batch_size, options['window_size'], 1, 1)
-
     # extract rotation and velocity from raw
-    rotation = input_data[:,:,:-1,:]
-    root_velocity  = input_data[:,:,-1:,:-1]
+    rotation = input_data[:,:,:,:4]
+    velocity = input_data[:,:,:,4:]
+    root_velocity  = input_data[:,:,0:1,4:]
 
     if norm_rot is True:
         # the current output rotation is not necessarily a normalized quaternion
@@ -542,31 +539,16 @@ def get_pos_info_from_raw(input_data : torch.Tensor, skdata, options, norm_rot=F
     # create rotations local to root
     rotation_loc_to_root = torch.clone(rotation)
     rotation_loc_to_root[:,:,0,:] = torch.tensor([1,0,0,0]).float()
-    
-    # apply rotation offset to the rotations local to root to get the positions in the correct coordinate system
-    if rotation_offset is not None:
-        rotation_offset_r = rotation_offset.reshape(1,1,4)
-        rotation_offset_r = rotation_offset.repeat(rotation_loc_to_root.shape[0],rotation_loc_to_root.shape[1],1)
-        rotation_loc_to_root[:,:,0,:] = quat_mul(rotation_offset_r.float(), rotation_loc_to_root[:,:,0,:])
         
-    # extract position information
+    # and offsets to [batch_size, window_size, n_joints, 3]
+    offsets = skdata.offsets.reshape(1, 1, skdata.offsets.shape[0], skdata.offsets.shape[1])
+    offsets = offsets.repeat(curr_batch_size, options['window_size'], 1, 1)
+    # extract the positions fk positions from rotations
     _, position_global = quat_fk(rotation, offsets, skdata.parents)
-    # produces the positions local to the hips (not local to parents)
-    rotation_hips_local, position_local = quat_fk(rotation_loc_to_root, offsets, skdata.parents)
+    _, position_local = quat_fk(rotation_loc_to_root, offsets, skdata.parents)
 
-    # get global velocity first
+    # calculate velocity from positions
     velocity_global = get_batch_velo2(position_global, skdata.frametime)
-
-    # go from local coordinate to global coordinate
-    glob_rotation = rotation[...,0:1,:].repeat(1,1,skdata.num_joints,1)
     velocity_global[:,:,0:1,:] = root_velocity # TODO: remove the hardcoded scale
-    velocity_local = velocity_global
-    velocity_local = quat_mul_vec(quat_inv(glob_rotation),velocity_global.float())
     
-    # apply offset to match the unity coordinate system
-    if rotation_offset is not None:
-        rotation_offset_r = rotation_offset.reshape(1,1,1,4)
-        rotation_offset_r = rotation_offset.repeat(curr_batch_size,options['window_size'],skdata.num_joints,1)
-        velocity_local = quat_mul_vec(rotation_offset_r.float() ,velocity_local.float())
-
-    return position_global, position_local, root_rotation, root_velocity, velocity_local, rotation_loc_to_root
+    return position_global, position_local, root_rotation, root_velocity, velocity, rotation_loc_to_root

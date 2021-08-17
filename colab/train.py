@@ -65,7 +65,7 @@ if __name__ == "__main__":
 
     # initialize model save path and logging path 
     model_path = "/models/"
-    log_path = "/runs/line_AMP/loss_discrim/"
+    log_path = "/runs/line_AMP/grad_error_discrim_output/"
     model_dir, log_dir = paths_setup(model_path, log_path, list(env.behavior_specs)[0])
     log.init(log_dir)
 

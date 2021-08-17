@@ -165,7 +165,7 @@ class SkeletonPool(torch.nn.Module):
 
         self.channels_per_edge = channels_per_edge
         self.pooling_mode = pooling_mode
-        self.edge_num = len(edges) + 1
+        self.edge_num = len(edges) + 1 
         self.seq_list = []
         self.pooling_list = []
         self.new_edges = []

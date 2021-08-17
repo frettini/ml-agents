@@ -13,7 +13,7 @@ class Encoder(torch.nn.Module):
         self.channel_base = [options['channel_base']]
         
         self.channel_list = []
-        self.edge_num = [len(topology) + 1]
+        self.edge_num = [len(topology) + 1] 
         self.pooling_list = []
         self.layers = torch.nn.ModuleList()
         self.convs = []
