@@ -19,7 +19,7 @@
 "mid_activation_critic" : "relu",
 "last_activation_critic": "identity",
 
-"input_dim_discrim"      : 440,
+"input_dim_discrim"      : 350,
 "hidden_units_discrim"   : [1024,512],
 "num_layers_discrim"     : 2,
 "mid_activation_discrim" : "leakyrelu",

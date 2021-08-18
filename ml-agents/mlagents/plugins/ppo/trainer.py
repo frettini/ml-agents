@@ -228,6 +228,9 @@ class AMPTainer():
                 buffer_batch = self.ppo_agent.buffer.states[start_ind:end_ind]
             
             buffer_batch = torch.vstack(buffer_batch)
+            buffer_batch_curr = buffer_batch[:-1]
+            buffer_batch_next = buffer_batch[1:]
+            buffer_batch = (buffer_batch_curr, buffer_batch_next)
 
             # get the discriminator input from buffer
             discrim_input  = self.buffer_to_discrim(buffer_batch)
@@ -286,8 +289,11 @@ class AMPTainer():
             ind = i % (n_batches-1)
             start_ind  =  ind*batch_size
             end_ind = (ind+1)*(batch_size) + 1
-            buffer_batch = self.ppo_agent.buffer.states[start_ind:end_ind]
-            buffer_batch = torch.vstack(buffer_batch)
+            rand_ind = np.random.randint(0, len(self.ppo_agent.buffer.states)-1, batch_size)
+
+            buffer_batch_curr = torch.vstack([self.ppo_agent.buffer.states[f] for f in rand_ind])
+            buffer_batch_next = torch.vstack([self.ppo_agent.buffer.states[f] for f in (rand_ind+1)])
+            buffer_batch = (buffer_batch_curr, buffer_batch_next)
             fake_input = self.buffer_to_discrim(buffer_batch)
 
             # add to buffer, then randomly sample from buffer
@@ -317,33 +323,39 @@ class AMPTainer():
         """
         
         batch_size = self.options["batch_size_discrim"]
+        feature_stacks = []
 
-        # extract the observations needed for the discriminator 
-        # extract only the observation corresponding to the joints
-        joint_features = batch[:,:-6]
-        joint_features = joint_features.reshape(batch_size+1,-1, self.features_per_joints)
+        for i in range(2):
+            # extract the observations needed for the discriminator 
+            # extract only the observation corresponding to the joints
+            joint_features = batch[i][:,:-6]
+            joint_features = joint_features.reshape(batch_size,-1, self.features_per_joints)
 
-        # u_velocity = joint_features[:,:,:3].clone()
-        # angular_vel = joint_features[:,:,3:6].clone()
-        positions = joint_features[:,:,6:9].clone()
-        rotations = joint_features[:,:,9:].clone()
+            # u_velocity = joint_features[:,:,:3].clone()
+            # angular_vel = joint_features[:,:,3:6].clone()
+            positions = joint_features[:,:,6:9].clone()
+            rotations = joint_features[:,:,9:].clone()
 
-        local_positions = positions[:] - positions[:,0:1,:]
+            local_positions = positions[:] - positions[:,0:1,:]
 
-        temp = rotations[:,:,3].clone()
-        temp2 = rotations[:,:,:3].clone()
-        rotations[:,:,1:] = temp2
-        rotations[:,:,0] = temp
-        rotations[:,0,:] = torch.tensor([1.,0.,0.,0.]).float()
+            temp = rotations[:,:,3].clone()
+            temp2 = rotations[:,:,:3].clone()
+            rotations[:,:,1:] = temp2
+            rotations[:,:,0] = temp
+            rotations[:,0,:] = torch.tensor([1.,0.,0.,0.]).float()
 
-        # velocity and angular velocity calculation from positions and rotations, this is okay because it is sequential
-        velocity = utils.get_velocity(local_positions, self.skdata.frametime)
+            ee_pos = positions[:,self.skdata.ee_id,:].reshape(batch_size,-1)
 
-        # stack them vertically in one big vector 
-        # feature_stack = torch.cat((local_positions.reshape(batch_size+1,-1), rotations.reshape(batch_size+1,-1)), dim=1)
-        feature_stack = torch.cat((local_positions.reshape(batch_size+1,-1), rotations.reshape(batch_size+1,-1), velocity.reshape(batch_size+1,-1)), dim=1)
+            # velocity and angular velocity calculation from positions and rotations, this is okay because it is sequential
+            velocity = utils.get_velocity(local_positions, self.skdata.frametime)
+
+            # stack them vertically in one big vector 
+            # feature_stack = torch.cat((local_positions.reshape(batch_size+1,-1), rotations.reshape(batch_size+1,-1)), dim=1)
+            # feature_stack = torch.cat((local_positions.reshape(batch_size+1,-1), rotations.reshape(batch_size+1,-1), velocity.reshape(batch_size+1,-1)), dim=1)
+            feature_stacks.append(torch.cat((ee_pos, rotations.reshape(batch_size,-1), velocity.reshape(batch_size,-1)), dim=1))
+
         # stack the current state and next state in a single buffer
-        discrim_input = torch.cat((feature_stack[:-1,:], feature_stack[1:,:]), dim=1)
+        discrim_input = torch.cat((feature_stacks[0], feature_stacks[1]), dim=1)
 
         return discrim_input
 
@@ -359,10 +371,13 @@ class AMPTainer():
         curr_batch, next_batch = batch
         
         # velocity, position, and rotation
-        # curr_feature_stack = torch.cat((curr_batch[0].reshape(batch_size, -1), curr_batch[1].reshape(batch_size,-1)), dim=1)
-        # next_feature_stack = torch.cat((next_batch[0].reshape(batch_size, -1), next_batch[1].reshape(batch_size,-1)), dim=1)
-        curr_feature_stack = torch.cat((curr_batch[0].reshape(batch_size, -1), curr_batch[1].reshape(batch_size,-1), curr_batch[2].reshape(batch_size,-1)), dim=1)
-        next_feature_stack = torch.cat((next_batch[0].reshape(batch_size, -1), next_batch[1].reshape(batch_size,-1), next_batch[2].reshape(batch_size,-1)), dim=1)
+        curr_ee_pos = curr_batch[0][:,self.skdata.ee_id,:].reshape(batch_size, -1)
+        next_ee_pos = next_batch[0][:,self.skdata.ee_id,:].reshape(batch_size, -1)
+        # curr_feature_stack = torch.cat((curr_batch[0].reshape(batch_size, -1), curr_batch[1].reshape(batch_size,-1), curr_batch[2].reshape(batch_size,-1)), dim=1)
+        # next_feature_stack = torch.cat((next_batch[0].reshape(batch_size, -1), next_batch[1].reshape(batch_size,-1), next_batch[2].reshape(batch_size,-1)), dim=1)
+        curr_feature_stack = torch.cat((curr_ee_pos, curr_batch[1].reshape(batch_size,-1), curr_batch[2].reshape(batch_size,-1)), dim=1)
+        next_feature_stack = torch.cat((next_ee_pos, next_batch[1].reshape(batch_size,-1), next_batch[2].reshape(batch_size,-1)), dim=1)
+     
 
         # stack the current state and next state in a single buffer
         discrim_input = torch.cat((curr_feature_stack, next_feature_stack), dim=1)
