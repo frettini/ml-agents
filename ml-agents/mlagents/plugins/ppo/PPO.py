@@ -161,7 +161,7 @@ class ActorCritic(torch.nn.Module):
         """
         if isinstance(input, list):
             input = input[0]
-        continuous_action, _ = self.act(input)
+        continuous_action, _ , _ = self.act(input)
 
         export_out = [self.version_number, self.memory_size_vector, continuous_action, self.continuous_act_size_vector]
         return tuple(export_out)
@@ -442,7 +442,7 @@ class PPO:
         returns = (returns - returns.mean()) / (returns.std() + 1e-7)
         adv = returns - values[:-1]
         #adv = adv - adv.mean() / (adv.std() + 1e-7)
-        #adv = torch.clip(adv, -self.options["clip_norm_adv"], -self.options["clip_norm_adv"])
+        adv = torch.clip(adv, -self.options["clip_norm_adv"], self.options["clip_norm_adv"])
 
         return adv, returns
 
@@ -474,8 +474,8 @@ class PPO:
                           'old_policy_state_dict' : self.policy_old.state_dict(),
                           'optimizer_state_dict' : self.optimizer.state_dict(),
                           'scheduler' : self.scheduler.state_dict(),
-                          'running_mean' : self.policy_old.running_mean_std.mean,
-                          'running_std' : self.policy_old.running_mean_std.var}
+                          'running_mean' : self.policy.running_mean_std.mean,
+                          'running_std' : self.policy.running_mean_std.var}
 
         torch.save(save_model_dict, checkpoint_path)
 
@@ -489,8 +489,8 @@ class PPO:
         self.policy.load_state_dict(checkpoint['policy_state_dict'])
         self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
         self.scheduler.load_state_dict(checkpoint['scheduler'])
-        self.policy_old.running_mean_std.mean = checkpoint['running_mean']
-        self.policy_old.running_mean_std.std = checkpoint['running_std']
+        self.policy.running_mean_std.mean = checkpoint['running_mean']
+        self.policy.running_mean_std.std = checkpoint['running_std']
 
         self.set_action_std(self.action_std)
 
