@@ -65,13 +65,13 @@ if __name__ == "__main__":
 
     # initialize model save path and logging path 
     model_path = "/models/"
-    log_path = "/runs/line_AMP/sample_buffer_and_ee/"
+    log_path = "/runs/line_AMP/larger_buffer_cyens/"
     model_dir, log_dir = paths_setup(model_path, log_path, list(env.behavior_specs)[0])
     log.init(log_dir)
 
     # LOAD PATH IF NEEDED : exclude the extension and model at the end of the path
     load_path = None
-    # load_path = os.path.dirname(os.path.abspath(__file__)) + "/models/LaFanLine_17_08_2021-17_20/LafanLine_ep_300"
+    load_path = os.path.dirname(os.path.abspath(__file__)) + "/models/LaFanLine_18_08_2021-14_18/LafanLine_ep_1200"
 
     # log the hyperparameters for future reference
     log.writer.add_text("Hyperparameters", str(options))
