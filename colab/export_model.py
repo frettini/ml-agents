@@ -21,7 +21,7 @@ print(default_device())
 options = get_options("config/LaFanWalker.json")
 
 script_dir = os.path.dirname(__file__)
-model_path = '/models/LafanLine_06_08_2021-23_40/LafanLine_ep_400.pt'
+model_path = '/models/cyens_comp_model/LafanLine_ep_1200_AC.tar'
 export_path = "/models/export/"
 
 model_path = script_dir + model_path
@@ -35,14 +35,14 @@ if not os.path.isdir(export_path):
     os.mkdir(export_path)
 
 export_path = export_path + str.split(model_path,'/')[-1]
-export_path = export_path.replace('.pt', '.onnx')
+export_path = export_path.replace('.tar', '.onnx')
 
 
 print(export_path)
 # filename = None enables to communicate directly with the unity editor
 env_file = "/myenv/" 
 env_file = os.path.dirname(os.path.abspath(__file__)) + env_file
-# env_file = None
+env_file = None
 if env_file is None:
     print("Env file is null, press play on the Editor to start the training.")
 
@@ -67,7 +67,13 @@ running_mean_std = RunningMeanStd(shape=state_dim)
 
 # initialize a PPO agent
 policy = ActorCritic(env.behavior_specs, options, running_mean_std)
-policy.load_state_dict(torch.load(model_path, map_location=lambda storage, loc: storage))
+checkpoint = torch.load(model_path, map_location=lambda storage, loc: storage)
+
+action_std = checkpoint['action_std']
+policy.load_state_dict(checkpoint['policy_state_dict'])
+policy.running_mean_std.mean = checkpoint['running_mean']
+policy.running_mean_std.std = checkpoint['running_std']
+policy.set_action_std(action_std)
 
 decision_steps, terminal_steps = env.get_steps(behavior_name)
 x = torch.rand((len(decision_steps), state_dim)).float()

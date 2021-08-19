@@ -74,9 +74,9 @@ class Discriminator(torch.nn.Module):
         self.running_mean_std_fake = RunningMeanStd(shape=options["input_dim_discrim"])
         
         self.running_mean_std_real = RunningMeanStd(shape=options["input_dim_discrim"])
-        real_mean = torch.cat((adv_dataset.positions_mean.reshape(-1), adv_dataset.rotations_mean.reshape(-1), adv_dataset.velocity_mean.reshape(-1)))
+        real_mean = torch.cat((adv_dataset.positions_mean[adv_dataset.skdata.ee_id,:].reshape(-1), adv_dataset.rotations_mean.reshape(-1), adv_dataset.velocity_mean.reshape(-1)))
         real_mean = torch.cat((real_mean, real_mean))
-        real_var = torch.cat((adv_dataset.positions_var.reshape(-1), adv_dataset.rotations_var.reshape(-1), adv_dataset.velocity_var.reshape(-1)))
+        real_var = torch.cat((adv_dataset.positions_var[adv_dataset.skdata.ee_id,:].reshape(-1), adv_dataset.rotations_var.reshape(-1), adv_dataset.velocity_var.reshape(-1)))
         real_var = torch.cat((real_var, real_var))
         self.running_mean_std_real.mean = real_mean
         self.running_mean_std_real.var = real_var
