@@ -138,7 +138,7 @@ class Discriminator(torch.nn.Module):
         grad_norm = 0
         for grad in discriminator_gradient:
             grad_norm = grad_norm + grad.pow(2).sum()
-        grad_norm = grad_norm.sqrt()
+        #grad_norm = grad_norm.sqrt()
 
         self.cumul_d_real_loss += loss_real.detach()
         # loss_real += (self.grad_pernalty_factor/2) * grad_norm
