@@ -41,7 +41,10 @@ class ActorCritic(torch.nn.Module):
         self.behavior_spec = behavior_specs[behavior_name]
         self.action_spec = behavior_specs[behavior_name].action_spec
 
-        state_dim = self.behavior_spec.observation_specs[0].shape[0]
+        if options["rotation_repr"] == "6D":
+            state_dim = self.behavior_spec.observation_specs[0].shape[0] + 44
+        else:
+            state_dim = self.behavior_spec.observation_specs[0].shape[0]
         action_dim = self.action_spec.continuous_size
 
         self.device = default_device()
@@ -262,7 +265,7 @@ class PPO:
         
         # Initialize a running mean std that will be shared between the actorcritics
         behaviour_name = list(behaviour_spec)[0]
-        running_mean_std = RunningMeanStd(shape=behaviour_spec[behaviour_name].observation_specs[0].shape[0])
+        running_mean_std = None #RunningMeanStd(shape=behaviour_spec[behaviour_name].observation_specs[0].shape[0])
 
         self.policy : ActorCritic = ActorCritic(behaviour_spec, options, running_mean_std=running_mean_std).to(self.device)
         self.optimizer = torch.optim.Adam([
