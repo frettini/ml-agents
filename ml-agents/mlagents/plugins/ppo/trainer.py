@@ -30,16 +30,14 @@ class AMPTainer():
             raise("Side Channel should at least contain the Skeleton and Engine side channels")
         side_channels["engine"].set_configuration_parameters(width=350, height=300)
 
-        # extract initial skeleton information from side_channel  
-        # TODO : remove hardcode 22 joints      
-        # TODO : ensure that the frame rate of simulation is the same as the one from the adversarial dataset
+
 
         # INIT PPO AGENT
         self.ppo_agent = PPO(env.behavior_specs, options)
 
         # LOAD DATA FROM MOTION CAPTURE DATASET
         # Setup LaFan dataset and skeleton information
-        self.adv_dataset = UnityMotionDataset(motion_path, side_channels["skeleton"])
+        self.adv_dataset = UnityMotionDataset(motion_path, side_channels["skeleton"], options=options)
         self.skdata : SkeletonInfo = self.adv_dataset.skdata
         self.scale = 100
 
@@ -129,9 +127,10 @@ class AMPTainer():
 
                 # collect for the terminal step too
                 obs = terminal_steps.obs[0] # [num_agent, obs_dim]
-                action, act_logprob, state_values = self.ppo_agent.batch_select_action(obs) #[num_agent, act_dim]
-
                 obs = torch.tensor(obs, requires_grad=False).float().to(self.device)
+                if self.options["rotation_repr"] == "6D": obs = self.quaternion_state_to_6D(obs)
+
+                action, act_logprob, state_values = self.ppo_agent.batch_select_action(obs) #[num_agent, act_dim]
 
                 # append the information corresponding to each agent
                 self.agent_buffers[agent_ind].rewards.append(terminal_steps[agent_ind].reward)
@@ -143,6 +142,9 @@ class AMPTainer():
             
             # get next action for all observations 
             obs = decision_steps.obs[0] # [num_agent, obs_dim]
+            obs = torch.tensor(obs, requires_grad=False).float().to(self.device)
+            if self.options["rotation_repr"] == "6D": obs = self.quaternion_state_to_6D(obs)
+
             action, act_logprob, state_values = self.ppo_agent.batch_select_action(obs) #[num_agent, act_dim]
             
             # retriave information from agents who require a decision
@@ -153,7 +155,7 @@ class AMPTainer():
                     self.agent_buffers[agent_ind].clear()
 
                 index = decision_steps.agent_id_to_index[agent_ind]
-                obs = torch.tensor(obs, requires_grad=False).float().to(self.device)
+                
 
                 # append the information corresponding to each agent
                 self.agent_buffers[agent_ind].rewards.append(decision_steps[agent_ind].reward)
@@ -325,11 +327,16 @@ class AMPTainer():
         batch_size = self.options["batch_size_discrim"]
         feature_stacks = []
 
+        if self.options["rotation_repr"] == "6D":
+            features_per_joints = self.features_per_joints + 2
+        else:
+            features_per_joints = self.features_per_joints
+
         for i in range(2):
             # extract the observations needed for the discriminator 
             # extract only the observation corresponding to the joints
             joint_features = batch[i][:,:-6]
-            joint_features = joint_features.reshape(batch_size,-1, self.features_per_joints)
+            joint_features = joint_features.reshape(batch_size,-1, features_per_joints)
 
             # u_velocity = joint_features[:,:,:3].clone()
             # angular_vel = joint_features[:,:,3:6].clone()
@@ -338,11 +345,12 @@ class AMPTainer():
 
             local_positions = positions[:] - positions[:,0:1,:]
 
-            temp = rotations[:,:,3].clone()
-            temp2 = rotations[:,:,:3].clone()
-            rotations[:,:,1:] = temp2
-            rotations[:,:,0] = temp
-            rotations[:,0,:] = torch.tensor([1.,0.,0.,0.]).float()
+            if self.options["rotation_repr"] == "quater":
+                temp = rotations[:,:,3].clone()
+                temp2 = rotations[:,:,:3].clone()
+                rotations[:,:,1:] = temp2
+                rotations[:,:,0] = temp
+                rotations[:,0,:] = torch.tensor([1.,0.,0.,0.]).float()
 
             ee_pos = positions[:,self.skdata.ee_id,:].reshape(batch_size,-1)
 
@@ -373,16 +381,71 @@ class AMPTainer():
         # velocity, position, and rotation
         curr_ee_pos = curr_batch[0][:,self.skdata.ee_id,:].reshape(batch_size, -1)
         next_ee_pos = next_batch[0][:,self.skdata.ee_id,:].reshape(batch_size, -1)
+
+        if self.options["rotation_repr"] == "quater":
+            curr_rotation = curr_batch[1].reshape(batch_size,-1)
+            next_rotation = next_batch[1].reshape(batch_size,-1)
+        elif self.options["rotation_repr"] == "6D":
+
+            curr_rotation = curr_batch[1].reshape(batch_size, -1)
+            next_rotation = next_batch[1].reshape(batch_size, -1)
+
+            # curr_rotation_mat = utils.compute_rotation_matrix_from_quaternion(curr_rotation)
+            # next_rotation_mat = utils.compute_rotation_matrix_from_quaternion(next_rotation)
+
+            # rotation6D = torch.cat((curr_rotation_mat[:,:,0,:], curr_rotation_mat[:,:,1,:]), dim=2)
+            # curr_rotation = rotation6D.reshape(batch_size, -1)
+
+            # rotation6D = torch.cat((next_rotation_mat[:,:,0,:], next_rotation_mat[:,:,1,:]), dim=2)
+            # next_rotation = rotation6D.reshape(batch_size, -1)
+
+
         # curr_feature_stack = torch.cat((curr_batch[0].reshape(batch_size, -1), curr_batch[1].reshape(batch_size,-1), curr_batch[2].reshape(batch_size,-1)), dim=1)
         # next_feature_stack = torch.cat((next_batch[0].reshape(batch_size, -1), next_batch[1].reshape(batch_size,-1), next_batch[2].reshape(batch_size,-1)), dim=1)
-        curr_feature_stack = torch.cat((curr_ee_pos, curr_batch[1].reshape(batch_size,-1), curr_batch[2].reshape(batch_size,-1)), dim=1)
-        next_feature_stack = torch.cat((next_ee_pos, next_batch[1].reshape(batch_size,-1), next_batch[2].reshape(batch_size,-1)), dim=1)
+        curr_feature_stack = torch.cat((curr_ee_pos, curr_rotation.reshape(batch_size,-1), curr_batch[2].reshape(batch_size,-1)), dim=1)
+        next_feature_stack = torch.cat((next_ee_pos, next_rotation.reshape(batch_size,-1), next_batch[2].reshape(batch_size,-1)), dim=1)
      
 
         # stack the current state and next state in a single buffer
         discrim_input = torch.cat((curr_feature_stack, next_feature_stack), dim=1)
 
         return discrim_input
+
+    def quaternion_state_to_6D(self, states):
+        """
+        state is a 2D tensor, [n_agents, state_dim]
+        return a 2D tensor of size [n_agents, state_dim + 6D dim]
+        """
+        # extract the observations needed for the discriminator 
+        # extract only the observation corresponding to the joints
+        
+        if states.shape[0] == 0:
+            return torch.empty((0,states.shape[1]+self.skdata.num_joints*2))
+
+        joint_features = states[:,:-6]
+        joint_features = joint_features.reshape(states.shape[0],-1, self.features_per_joints)
+
+        u_velocity = joint_features[:,:,:3].clone()
+        angular_vel = joint_features[:,:,3:6].clone()
+        positions = joint_features[:,:,6:9].clone()
+        rotations = joint_features[:,:,9:].clone()
+
+        temp = rotations[:,:,3].clone()
+        temp2 = rotations[:,:,:3].clone()
+        rotations[:,:,1:] = temp2
+        rotations[:,:,0] = temp
+        rotations[:,0,:] = torch.tensor([1.,0.,0.,0.]).float()
+
+        # compute the rotation matrix, rotation_mat is of size [n_agents, n_joints, 3,3]
+        rotation_mat = utils.compute_rotation_matrix_from_quaternion(rotations)
+        rotation6D = torch.cat((rotation_mat[:,:,0,:], rotation_mat[:,:,1,:]), dim=2)
+
+        new_states = torch.cat((u_velocity , angular_vel, positions, rotation6D), dim=2)
+        new_states = new_states.reshape(states.shape[0], -1)
+        new_states = torch.cat((new_states, states[:,-6:]), dim=1)
+
+        return new_states
+
 
     def save(self, epoch):
         self.ppo_agent.save(self.model_path + "LafanLine_ep_{}_AC.tar".format(epoch))

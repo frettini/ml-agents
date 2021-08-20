@@ -552,3 +552,57 @@ def get_pos_info_from_raw(input_data : torch.Tensor, skdata, options, norm_rot=F
     velocity_global[:,:,0:1,:] = root_velocity # TODO: remove the hardcoded scale
     
     return position_global, position_local, root_rotation, root_velocity, velocity, rotation_loc_to_root
+
+
+#poses batch*6
+# from : https://github.dev/papagina/RotationContinuity/blob/master/shapenet/code/tools.py
+def compute_rotation_matrix_from_ortho6d(poses):
+    # TODO: check if dimensions are correct
+    x_raw = poses[:,0:3]#batch*3
+    y_raw = poses[:,3:6]#batch*3
+        
+    x = normalize(x_raw) #batch*3
+    z = torch.cross(x,y_raw, dim = -1) #batch*3
+    z = normalize(z)#batch*3
+    y = torch.cross(z,x, dim=-1)#batch*3
+        
+    x = x.view(-1,3,1)
+    y = y.view(-1,3,1)
+    z = z.view(-1,3,1)
+    matrix = torch.cat((x,y,z), 2) #batch*3*3
+    return matrix
+
+
+#quaternion batch*4
+def compute_rotation_matrix_from_quaternion(quaternion):
+    """
+    :params quaternion: [...,4] tensor
+    """
+    batch=quaternion.shape[0]
+    
+    quat = normalize(quaternion)
+
+    # TODO: rewrite the function so that it complies with our datashape
+    qw = quat[...,0] # [...,1]
+    qx = quat[...,1]
+    qy = quat[...,2]
+    qz = quat[...,3]
+
+    # Unit quaternion rotation matrices computatation  
+    xx = qx*qx
+    yy = qy*qy
+    zz = qz*qz
+    xy = qx*qy
+    xz = qx*qz
+    yz = qy*qz
+    xw = qx*qw
+    yw = qy*qw
+    zw = qz*qw
+    
+    row0 = torch.stack((1-2*yy-2*zz, 2*xy - 2*zw, 2*xz + 2*yw), dim=-1) #batch*3
+    row1 = torch.stack((2*xy+ 2*zw,  1-2*xx-2*zz, 2*yz-2*xw  ), dim=-1) #batch*3
+    row2 = torch.stack((2*xz-2*yw,   2*yz+2*xw,   1-2*xx-2*yy), dim=-1) #batch*3
+    
+    matrix = torch.stack((row0, row1, row2),-1) #batch*3*3
+    
+    return matrix

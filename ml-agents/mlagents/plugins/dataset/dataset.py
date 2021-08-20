@@ -247,6 +247,12 @@ class UnityMotionDataset(torch.utils.data.Dataset):
         self.rotations = torch.cat(rotations, dim=0)
         self.velocity  = torch.cat(velocity,  dim=0) #utils.get_velocity(self.positions, self.skdata.frametime)
 
+        if options["rotation_repr"] == "6D":
+            rotation_mat = utils.compute_rotation_matrix_from_quaternion(self.rotations)
+            rotation6D = torch.cat((rotation_mat[:,:,0,:], rotation_mat[:,:,1,:]), dim=2)
+
+            self.rotations = rotation6D
+
         # calculate the statistics
         self.positions_mean = torch.mean(self.positions, dim=0)
         self.positions_var = torch.var(self.positions, dim=0)
