@@ -338,7 +338,7 @@ class AMPTainer():
             joint_features = batch[i][:,:-6]
             joint_features = joint_features.reshape(batch_size,-1, features_per_joints)
 
-            # u_velocity = joint_features[:,:,:3].clone()
+            velocity = joint_features[:,:,:3].clone()
             # angular_vel = joint_features[:,:,3:6].clone()
             positions = joint_features[:,:,6:9].clone()
             rotations = joint_features[:,:,9:].clone()
@@ -352,10 +352,10 @@ class AMPTainer():
                 rotations[:,:,0] = temp
                 rotations[:,0,:] = torch.tensor([1.,0.,0.,0.]).float()
 
-            ee_pos = positions[:,self.skdata.ee_id,:].reshape(batch_size,-1)
+            ee_pos = local_positions[:,self.skdata.ee_id,:].reshape(batch_size,-1)
 
             # velocity and angular velocity calculation from positions and rotations, this is okay because it is sequential
-            velocity = utils.get_velocity(local_positions, self.skdata.frametime)
+            # velocity = utils.get_velocity(local_positions, self.skdata.frametime)
 
             # stack them vertically in one big vector 
             # feature_stack = torch.cat((local_positions.reshape(batch_size+1,-1), rotations.reshape(batch_size+1,-1)), dim=1)
@@ -389,15 +389,6 @@ class AMPTainer():
 
             curr_rotation = curr_batch[1].reshape(batch_size, -1)
             next_rotation = next_batch[1].reshape(batch_size, -1)
-
-            # curr_rotation_mat = utils.compute_rotation_matrix_from_quaternion(curr_rotation)
-            # next_rotation_mat = utils.compute_rotation_matrix_from_quaternion(next_rotation)
-
-            # rotation6D = torch.cat((curr_rotation_mat[:,:,0,:], curr_rotation_mat[:,:,1,:]), dim=2)
-            # curr_rotation = rotation6D.reshape(batch_size, -1)
-
-            # rotation6D = torch.cat((next_rotation_mat[:,:,0,:], next_rotation_mat[:,:,1,:]), dim=2)
-            # next_rotation = rotation6D.reshape(batch_size, -1)
 
 
         # curr_feature_stack = torch.cat((curr_batch[0].reshape(batch_size, -1), curr_batch[1].reshape(batch_size,-1), curr_batch[2].reshape(batch_size,-1)), dim=1)
@@ -499,13 +490,14 @@ class DiscrimBuffer():
         self.max_ind = self.max_size
 
 # limits = [[-1,1],[-1,1],[-1,1]]
-# skeletons_plot([local_positions.cpu().detach()], [self.skdata.edges], ['g'], limits=limits, return_plot=False)
+# skeletons_plot([local_positions[0].cpu().detach()], [self.skdata.edges], ['g'], limits=limits, return_plot=False)
 
 # offsets = self.skdata.offsets.clone()
 # offsets = offsets.reshape(1,22,3)
 # offsets = offsets.repeat(rotations.shape[0],1,1)
 
 # _, pos_from_rot = utils.quat_fk(rotations, offsets, self.skdata.parents)
+# skeletons_plot([pos_from_rot[0].cpu().detach()], [self.skdata.edges], ['g'], limits=limits, return_plot=False)
 # skeletons_plot([local_positions[0].cpu().detach()], [self.skdata.edges,self.skdata.edges], ['g', 'b'], limits=limits, return_plot=False)
 
 # anim = motion_animation([pos_from_rot[0].cpu().detach(), local_positions[0].cpu().detach()], [self.skdata.edges, self.skdata.edges], ['g', 'b'], limits)
@@ -522,8 +514,11 @@ class DiscrimBuffer():
 # velocity[-1] = (positions[-1] - positions[-2])/self.skdata.frametime
 
 # velocity += u_velocity[:,0:1,:]
-#velocity = get_batch_velo2(local_positions, self.skdata.frametime)
+# velocity = get_batch_velo2(local_positions, self.skdata.frametime)
 
+
+# pos_from_vel = local_positions0 + velocity0 * 0.05
+# pos_from_vel = utils.get_global_position_from_velocity(torch.zeros((50,22,3)), velocity, 0.01*5, local_positions)
 
 # adv_offsets = self.skdata.offsets.clone()/self.scale
 # rotation_offset = torch.tensor([  0., 0., 1., 0. ])#Quaternions.from_euler(np.array([0,0,0]), 'xyz').qs)

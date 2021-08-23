@@ -442,9 +442,9 @@ class PPO:
             returns[i] = gae + values[i]
 
         # returns = torch.tensor(returns).float()
-        returns = (returns - returns.mean()) / (returns.std() + 1e-7)
+        # returns = (returns - returns.mean()) / (returns.std() + 1e-7)
         adv = returns - values[:-1]
-        #adv = adv - adv.mean() / (adv.std() + 1e-7)
+        adv = adv - adv.mean() / (adv.std() + 1e-7)
         adv = torch.clip(adv, -self.options["clip_norm_adv"], self.options["clip_norm_adv"])
 
         return adv, returns
@@ -464,9 +464,11 @@ class PPO:
 
         # Normalizing the rewards
         rewards = torch.tensor(rewards, dtype=torch.float32).to(self.device)
-        rewards = (rewards - rewards.mean()) / (rewards.std() + 1e-7)
+        # rewards = (rewards - rewards.mean()) / (rewards.std() + 1e-7)
 
         advantages = rewards - state_values.detach()  
+        advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-5)
+        advantages = torch.clip(advantages, -self.options["clip_norm_adv"], self.options["clip_norm_adv"])
         return advantages, rewards
 
     def save(self, checkpoint_path):
