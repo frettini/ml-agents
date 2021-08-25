@@ -21,12 +21,12 @@
 "last_activation_critic": "identity",
 
 "input_dim_discrim"      : 350,
-"hidden_units_discrim"   : [1024,512],
+"hidden_units_discrim"   : [512,256],
 "num_layers_discrim"     : 2,
-"mid_activation_discrim" : "leakyrelu",
+"mid_activation_discrim" : "relu",
 "last_activation_discrim": "identity",
 
-"goal_factor"           : 0.5,
+"goal_factor"           : 0.2,
 "style_factor"          : 1,
 "grad_penalty_factor"   : 10,
 "K_discrim"             : 1,
@@ -37,13 +37,13 @@
 "action_std_decay_freq" : 50000,
 
 "eps_clip"              : 0.2,
-"gamma"                 : 0.99,
+"gamma"                 : 0.97,
 "lambda"                : 0.95,
 "advantage"             : "montecarlo",
 "clip_norm_adv"         : 5,    
 
-"lr_actor"              : 0.000002,
-"lr_critic"             : 0.000004,
+"lr_actor"              : 0.00002,
+"lr_critic"             : 0.00004,
 "scheduler_gamma"       : 1,
 "scheduler_step"        : 50,
 "lr_discrim"            : 0.00001,
