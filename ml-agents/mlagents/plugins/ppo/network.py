@@ -75,6 +75,8 @@ class Discriminator(torch.nn.Module):
         
         self.running_mean_std_real = RunningMeanStd(shape=options["input_dim_discrim"])
 
+        self.running_mean_std = RunningMeanStd(shape=options["input_dim_discrim"])
+
         real_mean = torch.cat((adv_dataset.positions_mean[adv_dataset.skdata.ee_id,:].reshape(-1), adv_dataset.rotations_mean.reshape(-1), adv_dataset.velocity_mean.reshape(-1)))
         real_mean = torch.cat((real_mean, real_mean))
         real_var = torch.cat((adv_dataset.positions_var[adv_dataset.skdata.ee_id,:].reshape(-1), adv_dataset.rotations_var.reshape(-1), adv_dataset.velocity_var.reshape(-1)))
@@ -96,8 +98,9 @@ class Discriminator(torch.nn.Module):
         :returns reward: the reward for being able to fool the discriminator
         """
 
-        self.running_mean_std_fake.update(input)
-        input = (input - self.running_mean_std_fake.mean)/self.running_mean_std_fake.var
+        # self.running_mean_std_fake.update(input)
+        # input = (input - self.running_mean_std_fake.mean)/self.running_mean_std_fake.var
+        input = (input - self.running_mean_std.mean)/self.running_mean_std.var
 
         # reward from discriminator :
         temp = 1-0.25*(self.forward(input)-1)**2
@@ -118,8 +121,12 @@ class Discriminator(torch.nn.Module):
         # normalize input 
         # self.running_mean_std_real.update(real_input)
         # self.running_mean_std_fake.update(fake_input)
-        real_input = (real_input - self.running_mean_std_real.mean)/self.running_mean_std_real.var
-        fake_input = (fake_input - self.running_mean_std_fake.mean)/self.running_mean_std_fake.var
+        # real_input = (real_input - self.running_mean_std_real.mean)/self.running_mean_std_real.var
+        # fake_input = (fake_input - self.running_mean_std_fake.mean)/self.running_mean_std_fake.var
+        self.running_mean_std.update(real_input)
+        self.running_mean_std.update(fake_input)
+        real_input = (real_input - self.running_mean_std.mean)/self.running_mean_std.var
+        fake_input = (fake_input - self.running_mean_std.mean)/self.running_mean_std.var
 
         # generate label vector which contains 1 or -1 for LSGAN
         curr_batch_size = real_input.shape[0]

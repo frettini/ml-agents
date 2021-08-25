@@ -210,6 +210,17 @@ class AMPTainer():
         Compute the style reward which is obtained from running the discriminator using trajectory data. 
         The resulting reward is added to the goal reward to be later used in the policy update. 
         """
+        # first add the full trajectory to the discriminator buffer:
+
+        # if we do, reduce the batch size to the len of the buffer
+        buffer_batch = self.ppo_agent.buffer.states[:self.options["buffer_size"]]
+        buffer_batch = torch.vstack(buffer_batch)
+        buffer_batch_curr = buffer_batch[:-1]
+        buffer_batch_next = buffer_batch[1:]
+        buffer_batch = (buffer_batch_curr, buffer_batch_next)
+        discrim_input  = self.buffer_to_discrim(buffer_batch)
+        self.discrim_buffer.add(discrim_input)
+
         # get pair of observations from the buffer and concatenate them 
         batch_size = self.options["batch_size_discrim"]
         num_iter = len(self.ppo_agent.buffer) // batch_size
@@ -236,6 +247,7 @@ class AMPTainer():
 
             # get the discriminator input from buffer
             discrim_input  = self.buffer_to_discrim(buffer_batch)
+            # discrim_input = (discrim_input - self.discrim_buffer.mean)/self.discrim_buffer.var
 
             # call the discriminator G_reward
             style_reward = self.discrim.G_reward(discrim_input)
@@ -244,7 +256,10 @@ class AMPTainer():
             # add the reward to the buffer.reward (remember to add the factors)
             goal_reward = torch.tensor(self.ppo_agent.buffer.rewards[start_ind:end_ind-1]).float()
             reward =  self.options["goal_factor"] * goal_reward + self.options["style_factor"] * style_reward
-            reward = torch.where(torch.logical_and(goal_reward < -0.99, goal_reward > -1.01), -1., reward.double()).float()
+
+            reward = reward * torch.tensor([not f for f in self.ppo_agent.buffer.is_terminals[start_ind:end_ind-1]])
+
+            # reward = torch.where(torch.logical_and(goal_reward < -0.99, goal_reward > -1.01), -1., reward.double()).float()
             self.ppo_agent.buffer.rewards[start_ind:end_ind-1] = reward.cpu().detach().tolist()
             
             self.cumul_style_reward += torch.mean(style_reward).detach()
@@ -288,20 +303,21 @@ class AMPTainer():
             # sample batch size from the buffer 
             # extract the information from it and concatenate in a single vector 
             # get the frames in batch size + 1 to account for the last next frame
-            ind = i % (n_batches-1)
-            start_ind  =  ind*batch_size
-            end_ind = (ind+1)*(batch_size) + 1
-            rand_ind = np.random.randint(0, len(self.ppo_agent.buffer.states)-1, batch_size)
+            # ind = i % (n_batches-1)
+            # start_ind  =  ind*batch_size
+            # end_ind = (ind+1)*(batch_size) + 1
+            # rand_ind = np.random.randint(0, len(self.ppo_agent.buffer.states)-1, batch_size)
 
-            buffer_batch_curr = torch.vstack([self.ppo_agent.buffer.states[f] for f in rand_ind])
-            buffer_batch_next = torch.vstack([self.ppo_agent.buffer.states[f] for f in (rand_ind+1)])
-            buffer_batch = (buffer_batch_curr, buffer_batch_next)
-            fake_input = self.buffer_to_discrim(buffer_batch)
+            # buffer_batch_curr = torch.vstack([self.ppo_agent.buffer.states[f] for f in rand_ind])
+            # buffer_batch_next = torch.vstack([self.ppo_agent.buffer.states[f] for f in (rand_ind+1)])
+            # buffer_batch = (buffer_batch_curr, buffer_batch_next)
+            # fake_input = self.buffer_to_discrim(buffer_batch)
 
             # add to buffer, then randomly sample from buffer
-            self.discrim_buffer.add(fake_input)
+            # self.discrim_buffer.add(fake_input)
             rand_ind = np.random.randint(0, self.discrim_buffer.max_ind, batch_size)
             fake_input = self.discrim_buffer[rand_ind]
+            # fake_input = (fake_input - self.discrim_buffer.mean)/self.discrim_buffer.var
 
             # pass in the data to the discriminator so that it can update itself
             self.discrim.optimize(real_input.float(), fake_input.float())
@@ -324,7 +340,7 @@ class AMPTainer():
         :returns discrim_input: [batch_size, discrim_input_size] tensor used in the discriminator as "fake data" 
         """
         
-        batch_size = self.options["batch_size_discrim"]
+        batch_size = batch[0].shape[0]#self.options["batch_size_discrim"]
         feature_stacks = []
 
         if self.options["rotation_repr"] == "6D":
@@ -457,6 +473,8 @@ class DiscrimBuffer():
         self.index = 0
         self.max_ind = 0
         self.buffer = torch.zeros((self.max_size, self.n_features))
+        self.mean = torch.zeros((self.n_features))
+        self.var = torch.ones((self.n_features))
 
     def add(self, input):
         batch_size = input.shape[0]
@@ -477,9 +495,19 @@ class DiscrimBuffer():
         self.buffer[start_ind : end_ind] = input
         self.index = end_ind
 
+
         self.max_ind += batch_size
         if self.max_ind > self.max_size-1:
             self.max_ind = self.max_size-1
+
+        self.update_mean_var()
+
+    def update_mean_var(self):
+        self.mean = torch.mean(self.buffer[:self.max_ind], dim=0)
+        self.var = torch.var(self.buffer[:self.max_ind], dim=0)
+        self.var = torch.where( self.var.double() < 1e-5, 1., self.var.double()).float()
+        self.var = self.var ** (1/2)
+
 
     def __getitem__(self,index):
         return self.buffer[index]
@@ -491,6 +519,9 @@ class DiscrimBuffer():
 
 # limits = [[-1,1],[-1,1],[-1,1]]
 # skeletons_plot([local_positions[0].cpu().detach()], [self.skdata.edges], ['g'], limits=limits, return_plot=False)
+# skeletons_plot([local_positions0[0].cpu().detach(),pos_from_vel[0].cpu().detach(),local_positions1[0].cpu().detach()],
+#                [self.skdata.edges,self.skdata.edges,self.skdata.edges], 
+#                ['b','r','g'], limits=limits, return_plot=False)
 
 # offsets = self.skdata.offsets.clone()
 # offsets = offsets.reshape(1,22,3)

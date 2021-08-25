@@ -269,8 +269,8 @@ class PPO:
 
         self.policy : ActorCritic = ActorCritic(behaviour_spec, options, running_mean_std=running_mean_std).to(self.device)
         self.optimizer = torch.optim.Adam([
-                        {'params': self.policy.actor.parameters(), 'lr': options["lr_actor"], 'weight_decay':0.0005},
-                        {'params': self.policy.critic.parameters(), 'lr': options["lr_critic"]}
+                        {'params': self.policy.actor.parameters(), 'lr': options["lr_actor"]},
+                        {'params': self.policy.critic.parameters(), 'lr': options["lr_critic"], 'weight_decay':0.0005}
                     ])
         self.scheduler = torch.optim.lr_scheduler.StepLR(self.optimizer, step_size=options["scheduler_step"], gamma=options["scheduler_gamma"])
             
