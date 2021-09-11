@@ -100,6 +100,7 @@ coverage.xml
 ml-agents/mlagents/plugins/skeleton_aware_op/data/
 # models
 colab/models/
+skeleton_aware_amp/models/
 myenv/
 myenv_hp/
 envs/
