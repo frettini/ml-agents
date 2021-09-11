@@ -28,7 +28,7 @@ class AMPTainer():
         
         if side_channels is None:
             raise("Side Channel should at least contain the Skeleton and Engine side channels")
-        side_channels["engine"].set_configuration_parameters(width=350, height=300)
+        side_channels["engine"].set_configuration_parameters(width=550, height=500)
 
 
 
@@ -37,7 +37,7 @@ class AMPTainer():
 
         # LOAD DATA FROM MOTION CAPTURE DATASET
         # Setup LaFan dataset and skeleton information
-        self.adv_dataset = UnityMotionDataset(motion_path, side_channels["skeleton"], options=options)
+        self.adv_dataset = UnityMotionDataset(motion_path, options=options)
         self.skdata : SkeletonInfo = self.adv_dataset.skdata
         self.scale = 100
 
@@ -214,11 +214,16 @@ class AMPTainer():
 
         # if we do, reduce the batch size to the len of the buffer
         buffer_batch = self.ppo_agent.buffer.states[:self.options["buffer_size"]]
+        is_not_terminal = torch.logical_not(torch.tensor(self.ppo_agent.buffer.is_terminals[:self.options["buffer_size"]]))
+
         buffer_batch = torch.vstack(buffer_batch)
         buffer_batch_curr = buffer_batch[:-1]
         buffer_batch_next = buffer_batch[1:]
         buffer_batch = (buffer_batch_curr, buffer_batch_next)
         discrim_input  = self.buffer_to_discrim(buffer_batch)
+
+        # get the batches that are not terminal only
+        discrim_input = discrim_input[is_not_terminal[:-1]]
         self.discrim_buffer.add(discrim_input)
 
         # get pair of observations from the buffer and concatenate them 
@@ -257,7 +262,9 @@ class AMPTainer():
             goal_reward = torch.tensor(self.ppo_agent.buffer.rewards[start_ind:end_ind-1]).float()
             reward =  self.options["goal_factor"] * goal_reward + self.options["style_factor"] * style_reward
 
-            reward = reward * torch.tensor([not f for f in self.ppo_agent.buffer.is_terminals[start_ind:end_ind-1]])
+            is_terminals = torch.tensor(self.ppo_agent.buffer.is_terminals[start_ind:end_ind-1])
+            reward[is_terminals] = -1.
+            # reward = reward * torch.tensor([not f for f in self.ppo_agent.buffer.is_terminals[start_ind:end_ind-1]])
 
             # reward = torch.where(torch.logical_and(goal_reward < -0.99, goal_reward > -1.01), -1., reward.double()).float()
             self.ppo_agent.buffer.rewards[start_ind:end_ind-1] = reward.cpu().detach().tolist()
@@ -280,6 +287,7 @@ class AMPTainer():
         batch_size = self.options["batch_size_discrim"] 
         window_size = self.options["window_size"]
         n_batches = self.options["buffer_size"] // batch_size
+        mean_diff = 0
 
         # for loop or not?
         for i in range(self.options["K_discrim"]):
@@ -288,7 +296,7 @@ class AMPTainer():
             #rand_ind = np.random.randint(80, 1300 - (batch_size+1)) # TODO: remove hardcoded values
             # adv_motion = self.adv_dataset[rand_ind:rand_ind+batch_size+1]
 
-            rand_ind = np.random.randint(0,275, batch_size)
+            rand_ind = np.random.randint(75,450, batch_size)
             rand_ind[rand_ind < 175] += 75
             rand_ind[rand_ind > 175] += 175
 
@@ -300,25 +308,13 @@ class AMPTainer():
             # MAKE SURE TO APPLY THE ROTATION OFFSET
             real_input = self.adversarial_to_discrim(adv_motion, batch_size)
 
-            # sample batch size from the buffer 
-            # extract the information from it and concatenate in a single vector 
-            # get the frames in batch size + 1 to account for the last next frame
-            # ind = i % (n_batches-1)
-            # start_ind  =  ind*batch_size
-            # end_ind = (ind+1)*(batch_size) + 1
-            # rand_ind = np.random.randint(0, len(self.ppo_agent.buffer.states)-1, batch_size)
-
-            # buffer_batch_curr = torch.vstack([self.ppo_agent.buffer.states[f] for f in rand_ind])
-            # buffer_batch_next = torch.vstack([self.ppo_agent.buffer.states[f] for f in (rand_ind+1)])
-            # buffer_batch = (buffer_batch_curr, buffer_batch_next)
-            # fake_input = self.buffer_to_discrim(buffer_batch)
-
             # add to buffer, then randomly sample from buffer
             # self.discrim_buffer.add(fake_input)
             rand_ind = np.random.randint(0, self.discrim_buffer.max_ind, batch_size)
             fake_input = self.discrim_buffer[rand_ind]
             # fake_input = (fake_input - self.discrim_buffer.mean)/self.discrim_buffer.var
-
+            mean_diff += ((real_input.mean(dim=0) - fake_input.mean(dim=0))**2).mean() # only for logging purpose
+            
             # pass in the data to the discriminator so that it can update itself
             self.discrim.optimize(real_input.float(), fake_input.float())
 
@@ -326,6 +322,7 @@ class AMPTainer():
         log.writer.add_scalar("Losses/Discriminator_Real", self.discrim.cumul_d_real_loss/self.options["K_discrim"], self.cumulated_training_steps)
         log.writer.add_scalar("Losses/Discriminator_Fake", self.discrim.cumul_d_fake_loss/self.options["K_discrim"], self.cumulated_training_steps)
         log.writer.add_scalar("Losses/Grad_Penalty", self.discrim.cumul_grad_penalty/self.options["K_discrim"], self.cumulated_training_steps)
+        log.writer.add_scalar("Losses/Mean_Difference", mean_diff/self.options["K_discrim"], self.cumulated_training_steps)
         self.discrim.cumul_d_loss = 0
         self.discrim.cumul_d_real_loss = 0
         self.discrim.cumul_d_fake_loss = 0
@@ -370,12 +367,7 @@ class AMPTainer():
 
             ee_pos = local_positions[:,self.skdata.ee_id,:].reshape(batch_size,-1)
 
-            # velocity and angular velocity calculation from positions and rotations, this is okay because it is sequential
-            # velocity = utils.get_velocity(local_positions, self.skdata.frametime)
-
             # stack them vertically in one big vector 
-            # feature_stack = torch.cat((local_positions.reshape(batch_size+1,-1), rotations.reshape(batch_size+1,-1)), dim=1)
-            # feature_stack = torch.cat((local_positions.reshape(batch_size+1,-1), rotations.reshape(batch_size+1,-1), velocity.reshape(batch_size+1,-1)), dim=1)
             feature_stacks.append(torch.cat((ee_pos, rotations.reshape(batch_size,-1), velocity.reshape(batch_size,-1)), dim=1))
 
         # stack the current state and next state in a single buffer
@@ -407,8 +399,6 @@ class AMPTainer():
             next_rotation = next_batch[1].reshape(batch_size, -1)
 
 
-        # curr_feature_stack = torch.cat((curr_batch[0].reshape(batch_size, -1), curr_batch[1].reshape(batch_size,-1), curr_batch[2].reshape(batch_size,-1)), dim=1)
-        # next_feature_stack = torch.cat((next_batch[0].reshape(batch_size, -1), next_batch[1].reshape(batch_size,-1), next_batch[2].reshape(batch_size,-1)), dim=1)
         curr_feature_stack = torch.cat((curr_ee_pos, curr_rotation.reshape(batch_size,-1), curr_batch[2].reshape(batch_size,-1)), dim=1)
         next_feature_stack = torch.cat((next_ee_pos, next_rotation.reshape(batch_size,-1), next_batch[2].reshape(batch_size,-1)), dim=1)
      
@@ -508,7 +498,6 @@ class DiscrimBuffer():
         self.var = torch.where( self.var.double() < 1e-5, 1., self.var.double()).float()
         self.var = self.var ** (1/2)
 
-
     def __getitem__(self,index):
         return self.buffer[index]
 
@@ -516,59 +505,3 @@ class DiscrimBuffer():
         self.buffer = buffer
         self.index = 0
         self.max_ind = self.max_size
-
-# limits = [[-1,1],[-1,1],[-1,1]]
-# skeletons_plot([local_positions[0].cpu().detach()], [self.skdata.edges], ['g'], limits=limits, return_plot=False)
-# skeletons_plot([local_positions0[0].cpu().detach(),pos_from_vel[0].cpu().detach(),local_positions1[0].cpu().detach()],
-#                [self.skdata.edges,self.skdata.edges,self.skdata.edges], 
-#                ['b','r','g'], limits=limits, return_plot=False)
-
-# offsets = self.skdata.offsets.clone()
-# offsets = offsets.reshape(1,22,3)
-# offsets = offsets.repeat(rotations.shape[0],1,1)
-
-# _, pos_from_rot = utils.quat_fk(rotations, offsets, self.skdata.parents)
-# skeletons_plot([pos_from_rot[0].cpu().detach()], [self.skdata.edges], ['g'], limits=limits, return_plot=False)
-# skeletons_plot([local_positions[0].cpu().detach()], [self.skdata.edges,self.skdata.edges], ['g', 'b'], limits=limits, return_plot=False)
-
-# anim = motion_animation([pos_from_rot[0].cpu().detach(), local_positions[0].cpu().detach()], [self.skdata.edges, self.skdata.edges], ['g', 'b'], limits)
-# HTML(anim.to_jshtml())
-
-
-# # get velocity by doing central difference
-# for i in range(positions.shape[0]-2):
-#     # print(((positions[i+2] - positions[i])/(frametime*2)).shape)
-#     velocity[i+1, ...] = (positions[i+2] - positions[i])/(self.skdata.frametime*2)
-
-# # boundary cases 
-# velocity[0] = (positions[1] - positions[0])/self.skdata.frametime
-# velocity[-1] = (positions[-1] - positions[-2])/self.skdata.frametime
-
-# velocity += u_velocity[:,0:1,:]
-# velocity = get_batch_velo2(local_positions, self.skdata.frametime)
-
-
-# pos_from_vel = local_positions0 + velocity0 * 0.05
-# pos_from_vel = utils.get_global_position_from_velocity(torch.zeros((50,22,3)), velocity, 0.01*5, local_positions)
-
-# adv_offsets = self.skdata.offsets.clone()/self.scale
-# rotation_offset = torch.tensor([  0., 0., 1., 0. ])#Quaternions.from_euler(np.array([0,0,0]), 'xyz').qs)
-# adv_data = get_pos_info_from_raw(batch, self.skdata, adv_offsets, self.options, norm_rot=False, rotation_offset=rotation_offset)
-# adv_pos_global, adv_pos_local, adv_hips_rot, adv_hips_velo, adv_vel, adv_rot_local = adv_data
-
-# adv_pos_local = adv_pos_local.reshape(-1, adv_pos_local.shape[-2], adv_pos_local.shape[-1])
-# adv_pos_local = self.adv_dataset.reconstruct_from_windows(adv_pos_local)
-
-# adv_pos_local = adv_pos_local.reshape(adv_pos_local.shape[0], -1)
-# adv_pos_local = adv_pos_local[:batch_size+1]
-
-# adv_vel[:,:,1:,:] += adv_vel[:,:,0:1,:] 
-
-# instead of reshaping it that way, we want to disentangle the windows
-# adv_vel = self.adv_dataset.reconstruct_from_windows(adv_vel)
-
-# adv_vel = adv_vel.reshape(adv_vel.shape[0], -1)
-# adv_vel = adv_vel[:batch_size+1]
-
-# adv_vel = adv_vel[:batch_size+1]
-# adv_rot_local = adv_rot_local[:batch_size+1]

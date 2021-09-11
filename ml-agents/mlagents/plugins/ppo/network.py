@@ -57,7 +57,8 @@ class Discriminator(torch.nn.Module):
                               mid_activation=activation_dict[options["mid_activation_discrim"]],
                               last_activation=activation_dict[options["last_activation_discrim"]])
 
-        self.optimizer = torch.optim.Adam(self.discrim.parameters(), options["lr_discrim"], weight_decay=0.0005)
+        # self.optimizer = torch.optim.Adam(self.discrim.parameters(), options["lr_discrim"], weight_decay=0.0005)
+        self.optimizer = torch.optim.SGD(self.discrim.parameters(), options["lr_discrim"], momentum=0.9)
 
         self.real_label = 1
         self.fake_label = -1

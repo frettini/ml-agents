@@ -317,32 +317,6 @@ class UnityMotionDataset(torch.utils.data.Dataset):
         rotations = torch.cat(rotations, dim=0)
         velocity = torch.cat(velocity, dim=0)
 
-        # self.normalize(positions,rotations)
-
-        # reshape rotations so that we provide the parent rotation (edge rotation)
-        # index = []
-        # for e in self.skdata.edges:
-        #     index.append(e[0])
-        # rotations = rotations[:,index, :]
-        # concatenate the rotations, global pos and a padding together [n_windows, n_frames, joints*channel_base]
-        # self.skdata.num_joints += 1 # add plus one for test
-        # rotations_cat = rotations.reshape(n_windows, self.window_size, (self.skdata.num_joints) * self.channel_base)
-
-        # get the global velocity:
-        # velocity = utils.get_velocity(positions, self.skdata.frametime)
-        # velocity = velocity.reshape(n_windows, self.window_size, self.skdata.num_joints * 3)
-        root_velocity = velocity[:,:,0:3]
-
-        # limits = [[-1,1],[-1,1],[-1,1]]
-        # skeletons_plot([local_positions.cpu().detach()], [self.skdata.edges], ['g'], limits=limits, return_plot=False)
-
-        # offsets = self.skdata.offsets.clone()
-        # offsets = offsets.reshape(1,22,3)
-        # offsets = offsets.repeat(rotations.shape[0],1,1)
-
-        # _, pos_from_rot = utils.quat_fk(rotations, offsets, self.skdata.parents)
-        # skeletons_plot([local_positions[0].cpu().detach()], [self.skdata.edges,self.skdata.edges], ['g', 'b'], limits=limits, return_plot=False)
-
         motion_data = torch.cat((rotations, velocity), dim=2).reshape(n_windows, self.window_size, -1)
         # motion_data = rotations_cat #torch.cat([rotations_cat, root_velocity.reshape(n_windows, self.window_size, -1), torch.zeros((n_windows, self.window_size,1))], axis=2)
 

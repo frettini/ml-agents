@@ -18,10 +18,10 @@ from mlagents.trainers.torch.model_serialization import ModelSerializer
 
 set_torch_config(TorchSettings(device='cpu'))
 print(default_device())
-options = get_options("config/LaFanWalker.json")
+options = get_options("config/LaFanWalkerLegs.json")
 
 script_dir = os.path.dirname(__file__)
-model_path = '/models/cyens_comp_model/LafanLine_ep_1200_AC.tar'
+model_path = '/models/LaFanLineLegs_08_09_2021-00_15/LafanLine_ep_200_AC.tar'
 export_path = "/models/export/"
 
 model_path = script_dir + model_path
@@ -40,9 +40,9 @@ export_path = export_path.replace('.tar', '.onnx')
 
 print(export_path)
 # filename = None enables to communicate directly with the unity editor
-env_file = "/myenv/" 
+env_file = "/envs/legs/" 
 env_file = os.path.dirname(os.path.abspath(__file__)) + env_file
-env_file = None
+# env_file = None
 if env_file is None:
     print("Env file is null, press play on the Editor to start the training.")
 

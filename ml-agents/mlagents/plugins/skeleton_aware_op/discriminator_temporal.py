@@ -68,8 +68,8 @@ class Discriminator(torch.nn.Module):
 
             
             if i == self.num_layers - 1:
-                # self.last_channel = self.joint_num[-1] * self.channel_base[i+1]
-                self.last_channel = 168
+                self.last_channel = self.joint_num[-1] * self.channel_base[i+1] * 2
+                # self.last_channel = 168
         
         # if we get to the last layer, compress every two frames together
         # First fully connected layer

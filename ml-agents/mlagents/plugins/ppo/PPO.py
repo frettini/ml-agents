@@ -268,10 +268,15 @@ class PPO:
         running_mean_std = None #RunningMeanStd(shape=behaviour_spec[behaviour_name].observation_specs[0].shape[0])
 
         self.policy : ActorCritic = ActorCritic(behaviour_spec, options, running_mean_std=running_mean_std).to(self.device)
-        self.optimizer = torch.optim.Adam([
-                        {'params': self.policy.actor.parameters(), 'lr': options["lr_actor"]},
-                        {'params': self.policy.critic.parameters(), 'lr': options["lr_critic"], 'weight_decay':0.0005}
+        # self.optimizer = torch.optim.Adam([
+        #                 {'params': self.policy.actor.parameters(), 'lr': options["lr_actor"]},
+        #                 {'params': self.policy.critic.parameters(), 'lr': options["lr_critic"], 'weight_decay':0.0005}
+        #             ])
+        self.optimizer = torch.optim.SGD([
+                        {'params': self.policy.actor.parameters(), 'lr': options["lr_actor"], 'momentum':0.9},
+                        {'params': self.policy.critic.parameters(), 'lr': options["lr_critic"], 'momentum':0.9}
                     ])
+
         self.scheduler = torch.optim.lr_scheduler.StepLR(self.optimizer, step_size=options["scheduler_step"], gamma=options["scheduler_gamma"])
             
         # keep track of the previous policy to generate the ratio
@@ -326,13 +331,13 @@ class PPO:
         if self.has_continuous_action_space:
             with torch.no_grad():
                 state = torch.FloatTensor(state).to(self.device)
-                action, logprobs, values = self.policy.act(state)
+                action, logprobs, values = self.policy_old.act(state)
 
             return action, logprobs, values
         else:
             with torch.no_grad():
                 state = torch.FloatTensor(state).to(self.device)
-                action, logprobs, values = self.policy.act(state)
+                action, logprobs, values = self.policy_old.act(state)
 
             return action, logprobs, values
 
@@ -342,7 +347,7 @@ class PPO:
         
         num_batches = (buffer_length // self.options["batch_size"]) 
         batch_indices = list(range(num_batches))
-        cumul_entropy = cumul_loss_policy = cumul_loss_value = cumul_values = cumul_returns = 0
+        cumul_entropy = cumul_loss_policy = cumul_loss_value = cumul_values = cumul_returns = cumul_adv = cumul_ppo_loss =  0
 
         # Optimize policy for K epochs
         for _ in range(self.K_epochs):
@@ -381,41 +386,47 @@ class PPO:
                 surr1 = ratios * advantages
                 surr2 = torch.clamp(ratios, 1-self.eps_clip, 1+self.eps_clip) * advantages
 
+                # Clipped Value alternative
                 # value_loss1 = self.MseLoss(state_values, returns)
                 # value_loss2 = torch.maximum(torch.minimum(state_values, old_state_values + self.eps_clip), old_state_values-self.eps_clip)
                 # value_loss3 = 0.5*torch.maximum(value_loss1, self.MseLoss(value_loss2, returns))
-                clipped_value = old_state_values + (state_values - old_state_values).clamp(min=-self.eps_clip,
-                                                                              max=self.eps_clip)
-                value_loss1 = torch.max((state_values - returns) ** 2, (clipped_value - returns) ** 2)
-                value_loss3 = 0.5 * value_loss1.mean()
+                # returns = (returns - returns.mean() )/(returns.std() + 1e-7)
+                # clipped_value = old_state_values + (state_values - old_state_values).clamp(min=-self.eps_clip,
+                #                                                               max=self.eps_clip)
+                # value_loss1 = torch.max((state_values - returns) ** 2, (clipped_value - returns) ** 2)
+                # value_loss3 = 0.5 * value_loss1.mean()
 
-                # value_loss3 = 0.5*self.MseLoss(state_values, returns)
+                value_loss3 = 0.5*self.MseLoss(state_values, returns)
 
                 # final loss of clipped objective PPO
-                loss = -torch.min(surr1, surr2) + value_loss3 - 0.01*dist_entropy
+                loss = -torch.min(surr1, surr2).mean() + value_loss3 - 0.0*dist_entropy.mean()
 
                 # take gradient step
                 self.optimizer.zero_grad()
                 loss.mean().backward()
-                torch.nn.utils.clip_grad_norm_(list(self.policy.actor.parameters()) + list(self.policy.critic.parameters()), max_norm=0.5)
+                torch.nn.utils.clip_grad_norm_(list(self.policy.actor.parameters()) + list(self.policy.critic.parameters()), max_norm=1)
                 self.optimizer.step()
                 
+                cumul_adv += torch.mean(advantages).detach().item()
                 cumul_returns += torch.mean(returns).detach().item()
                 cumul_values +=  torch.mean(state_values).detach().item()
                 cumul_entropy += torch.mean(dist_entropy).detach().item()
+                cumul_ppo_loss += torch.mean(loss).detach().item()
                 cumul_loss_policy += torch.mean(torch.min(surr1, surr2)).detach().item()
                 cumul_loss_value += value_loss3.detach().item()
 
         # Log Information
         N = len(batch_indices*self.K_epochs)
         log.writer.add_scalar("Policy/Returns", cumul_returns/N, self.cumulated_training_steps)
+        log.writer.add_scalar("Policy/Advantages", cumul_adv/N, self.cumulated_training_steps)
         log.writer.add_scalar("Policy/Value Estimate", cumul_values/N, self.cumulated_training_steps)
         log.writer.add_scalar("Policy/Entropy", cumul_entropy/N, self.cumulated_training_steps)
+        log.writer.add_scalar("Losses/PPO_Loss", cumul_ppo_loss/N, self.cumulated_training_steps)
         log.writer.add_scalar("Losses/Policy", cumul_loss_policy/N, self.cumulated_training_steps)
         log.writer.add_scalar("Losses/Value",  cumul_loss_value/N, self.cumulated_training_steps)
         log.writer.add_scalar("Policy/Learning Rate", self.scheduler.get_last_lr()[0], self.cumulated_training_steps)
         log.writer.add_scalar("Policy/Action Std", self.action_std, self.cumulated_training_steps)
-        cumul_entropy = cumul_loss_policy = cumul_loss_value = cumul_values = cumul_returns = 0
+        cumul_entropy = cumul_loss_policy = cumul_loss_value = cumul_values = cumul_returns = cumul_adv = cumul_ppo_loss = 0
                     
         # Copy new weights into old policy
         self.policy_old.load_state_dict(self.policy.state_dict())

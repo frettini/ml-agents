@@ -1,8 +1,8 @@
 {
 "comment1"              : "RL OPTIONS",
-"batch_size"            : 256,      
-"batch_size_discrim"    : 256,
-"buffer_size"           : 4096,       
+"batch_size"            : 50,      
+"batch_size_discrim"    : 50,
+"buffer_size"           : 200,       
 "max_training_steps"    : 100000000,     
 "K_epochs"              : 10,
 "continuous_space"      : true,
@@ -10,18 +10,18 @@
 "buffer_max_size"       : 100000,
 "rotation_repr"         : "quater",
 
-"hidden_units_actor"    : [1024,512],
+"hidden_units_actor"    : [512,256],
 "num_layers_actor"      : 2,
 "mid_activation_actor"  : "relu",
 "last_activation_actor" : "identity",
 
-"hidden_units_critic"   : [1024,512],
+"hidden_units_critic"   : [512,256],
 "num_layers_critic"     : 2,
 "mid_activation_critic" : "relu",
 "last_activation_critic": "identity",
 
 "input_dim_discrim"      : 350,
-"hidden_units_discrim"   : [512,256],
+"hidden_units_discrim"   : [300,200],
 "num_layers_discrim"     : 2,
 "mid_activation_discrim" : "relu",
 "last_activation_discrim": "identity",
@@ -42,21 +42,23 @@
 "advantage"             : "montecarlo",
 "clip_norm_adv"         : 5,    
 
-"lr_actor"              : 0.00002,
-"lr_critic"             : 0.00004,
+"lr_actor"              : 0.00001,
+"lr_critic"             : 0.0001,
 "scheduler_gamma"       : 1,
 "scheduler_step"        : 50,
-"lr_discrim"            : 0.00001,
+"lr_discrim"            : 0.000001,
 
 "print_freq"            : 200,
 "log_freq"              : 200,
-"save_freq"             : 50,
+"save_freq"             : 100,
 
 
 "comment2"              : "SKELETON AWARE OPTIONS",
-"sk_K_epochs"           : 100,
+"sk_K_epochs"           : 500,
 "sk_batch_size"         : 4,
 "channel_base"          : 7,       
+
+"input_offset"          : [0.707,0,0.707,0],
 
 "sk_g_lr"               : 0.0002,
 "sk_d_lr"               : 0.0002,
@@ -67,9 +69,12 @@
 "window_size"           : 16,
 "drop_percentage"       : null,
 
-"sk_ee_factor"          : 2,
+"sk_ee_factor"          : 1,
 "sk_adv_factor"         : 0.25,
-"sk_rot_factor"         : 0,
-"sk_glob_velo_factor"   : 1,
-"sk_root_velo_factor"   : 1
+"sk_rot_factor"         : 0.01,
+"sk_glob_velo_factor"   : 0.001,
+
+"noise_std"             : 0.0,
+"noise_mean"            : 0
+
 }      

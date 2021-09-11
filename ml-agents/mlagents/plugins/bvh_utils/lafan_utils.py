@@ -379,7 +379,7 @@ def get_global_position_from_velocity(init_position, velocity, frametime, positi
     """
     Get the global position from velocity and initial position. Another set of positions 
     can be provided to which the calculated global positions will be added.
-    :params init_position: [frame_size, 3] tensor initial global pos
+    :params init_position: [3] tensor initial global pos
     :params velocity: [frame_size, 3] tenosr global velocity
     :params frametime: float, time elapsed between frames
     :params positions: [frame_size, [positions]] tensor of position to which global pos is applied
@@ -550,6 +550,7 @@ def get_pos_info_from_raw(input_data : torch.Tensor, skdata, options, norm_rot=F
     # calculate velocity from positions
     velocity_global = get_batch_velo2(position_global, skdata.frametime)
     velocity_global[:,:,0:1,:] = root_velocity # TODO: remove the hardcoded scale
+
     
     return position_global, position_local, root_rotation, root_velocity, velocity, rotation_loc_to_root
 

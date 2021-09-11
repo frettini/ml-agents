@@ -41,12 +41,12 @@ if __name__ == "__main__":
     # initialize torch to be cpu only
     # usually faster for reinforcement learning problems
     set_torch_config(TorchSettings(device='cpu'))
-    options = get_options('/config/LaFanWalker.json')
+    options = get_options('/config/LaFanWalkerLegs.json')
     # options = get_options('/config/test_config.json')
     print("Default device : ", default_device())
 
     # filename = None enables to communicate directly with the unity editor
-    env_file = "/myenv/" 
+    env_file = "/envs/legs/" 
     env_file = os.path.dirname(os.path.abspath(__file__)) + env_file
     # env_file = None
     if env_file is None:
@@ -65,7 +65,7 @@ if __name__ == "__main__":
 
     # initialize model save path and logging path 
     model_path = "/models/"
-    log_path = "/runs/line_AMP/corrected_foot_joint_small_goal/"
+    log_path = "/runs/legs_AMP/nobackbend/"
     model_dir, log_dir = paths_setup(model_path, log_path, list(env.behavior_specs)[0])
     log.init(log_dir)
 
@@ -78,7 +78,7 @@ if __name__ == "__main__":
 
     # initialize the trainer, which in turn initializes the policies, discrim etc.. 
     # motion_path = "C:/Users/nicol/Work/Master/dissertation/ml-agents/colab/data/"
-    motion_path = os.path.dirname(os.path.abspath(__file__)) + "/data/"
+    motion_path = os.path.dirname(os.path.abspath(__file__)) + "/data/legs/"
     trainer = AMPTainer(env,options,motion_path,side_channels, model_dir, load_path)
     
     # start the training loop

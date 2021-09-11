@@ -29,8 +29,9 @@ if __name__ == "__main__":
     log.init(log_dir)
 
     
-    motion_path = os.path.dirname(os.path.abspath(__file__)) + "/data/"
+    motion_path_input = os.path.dirname(os.path.abspath(__file__)) + "/data/Ortiz/"
+    motion_path_output = os.path.dirname(os.path.abspath(__file__)) + "/data/James/"
 
-    trainer = Sk_Trainer(options, motion_path, motion_path)
+    trainer = Sk_Trainer(options, motion_path_input, motion_path_output)
 
     trainer.train()

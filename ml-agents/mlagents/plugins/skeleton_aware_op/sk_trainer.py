@@ -149,8 +149,12 @@ class Sk_Trainer():
                 motion = self.input_dataset.to_skaware(start_inds, end_inds)
                 curr_batch_size = motion.shape[0]
 
-                # get a frame from the "real" data 
-                randinds = np.random.randint(0,len(self.adv_dataset) - self.options["window_size"], curr_batch_size)
+                # add noise for study
+                noise = torch.rand_like(motion) * self.options["noise_std"] + self.options["noise_mean"]
+                motion = motion + noise
+
+                # get a frame from the "real" data , avoid the data with weird gates
+                randinds = np.random.randint(0,4000 - self.options["window_size"], curr_batch_size)
                 real_motion = self.adv_dataset.to_skaware(randinds, randinds + self.options["window_size"])
 
                 fake_motion_data, real_motion_data, input_motion_data = self.retarget(motion, real_motion)
@@ -193,7 +197,7 @@ class Sk_Trainer():
                 self.update_discriminator(real_motion_data[1], fake_motion_data[1], isTest = True)
                 self.update_generator(input_motion_data, fake_motion_data, isTest = True)
 
-                if print_skeleton is True:
+                if print_skeleton is True and ep%10 == 0:
                     batch_ind = np.random.randint(0, test_size)
                     frame_ind = np.random.randint(0, self.options["window_size"])
                     # skeletons_plot([input_motion_data[1][batch_ind,frame_ind], fake_motion_data[1][batch_ind,frame_ind]],
@@ -205,9 +209,9 @@ class Sk_Trainer():
                     skeletons_plot([fake_motion_data[1][batch_ind,frame_ind]],
                                     [self.skdata_adv.edges], 
                                     colors_list=['r'], )
-                    skeletons_plot([real_motion_data[1][batch_ind,frame_ind]],
-                                    [self.skdata_adv.edges], 
-                                    colors_list=['b'], )
+                    # skeletons_plot([real_motion_data[1][batch_ind,frame_ind]],
+                    #                 [self.skdata_adv.edges], 
+                    #                 colors_list=['b'], )
 
                 N = 1
                 log.writer.add_scalar('Test/Discriminator/D_loss', self.D_cumul/N, ep)
@@ -230,14 +234,17 @@ class Sk_Trainer():
         """
 
         # perform retargeting
+        input_not_norm = input_motion.clone()
         self.input_dataset.normalize(skaware_data = input_motion)
         output_motion = self.retargetter.retarget(input_motion)
         self.adv_dataset.denormalize(skaware_data = output_motion)
 
         # extract global position, root velocity,  
-        fake_data = utils.get_pos_info_from_raw(output_motion, self.skdata_input, self.options, norm_rot=True)
+        fake_data = utils.get_pos_info_from_raw(output_motion, self.skdata_adv, self.options, norm_rot=True)
         real_data = utils.get_pos_info_from_raw(real_motion, self.skdata_adv, self.options, norm_rot=False)
-        input_motion_data = utils.get_pos_info_from_raw(input_motion, self.skdata_input, self.options, norm_rot=False )
+        input_motion_data = utils.get_pos_info_from_raw(input_not_norm, self.skdata_input, self.options, norm_rot=False )
+
+        
 
         return fake_data, real_data, input_motion_data
 
@@ -257,7 +264,16 @@ class Sk_Trainer():
         output_pos, output_pos_local, output_root_rotation, output_glob_velo, output_vel, _ = output_data
 
         curr_batch_size = input_pos.shape[0]
+        rot_offset = torch.tensor(self.options["input_offset"]).float()
+        glob_rot_offset = rot_offset.reshape(1,1,1,4).repeat(curr_batch_size, self.options['window_size'], 1, 1)
+        pos_rot_offset = rot_offset.reshape(1,1,1,4).repeat(curr_batch_size, self.options['window_size'], self.skdata_input.num_joints, 1)
         
+        input_glob_velo = utils.quat_mul_vec(glob_rot_offset, input_glob_velo) # glob velocity
+        input_pos_local = utils.quat_mul_vec(pos_rot_offset, input_pos_local) # local position
+
+
+        curr_batch_size = input_pos.shape[0]
+        # skeletons_plot([input_pos[0,0]], [self.skdata_input.edges], ['b'])
         # Adversial Loss, use real labels to maximize log(D(G(x))) instead of log(1-D(G(x)))
         loss_adv = self.discriminator.G_loss(output_pos_local)
 
@@ -265,8 +281,6 @@ class Sk_Trainer():
         loss_rot = self.criterion_global_rotation(output_root_rotation, input_root_rotation)
 
         # Get the loss that tries to match the total velocity of every corresponding chain        
-        # loss_chain_velo = calc_chain_velo_loss(real_vel, fake_vel, chain_indices, 
-        #                                        criterion_velo, normalize_velo = False)
         loss_glob_velo = self.criterion_velo(output_glob_velo/self.skdata_adv.height, input_glob_velo/self.skdata_input.height)
         loss_ee = self.calc_ee_loss(input_vel, input_pos_local, output_vel, output_pos_local)
         
@@ -295,6 +309,12 @@ class Sk_Trainer():
         
         curr_batch_size = real_pos.shape[0]
         label = torch.full((curr_batch_size,), self.real_label, dtype=torch.float, device=default_device())
+
+        rot_offset = torch.tensor(self.options["input_offset"]).float()
+        pos_rot_offset = rot_offset.reshape(1,1,1,4).repeat(curr_batch_size, self.options['window_size'], self.skdata_input.num_joints, 1)
+
+        # pos_rot_offset = rot_offset.reshape(1,1,1,4).repeat(curr_batch_size, self.options['window_size'], self.skdata_adv.num_joints, 1)
+        # fake_pos = utils.quat_mul_vec(pos_rot_offset, fake_pos) # local position
         
         if not isTest:
             self.discriminator.zero_grad()
@@ -327,21 +347,27 @@ class Sk_Trainer():
         Calculate the end effector loss using the fake velocity and position (local or global)
         """
         # [batch, frame, n_end_effector, 6]
-        ee_false = self.skdata_input.ee_id[self.skdata_input.ee_id != 0]
-        ee_real = self.skdata_adv.ee_id[self.skdata_adv.ee_id != 0]
+        ee_false = self.skdata_adv.ee_id[self.skdata_adv.ee_id != 0]
+        ee_real = self.skdata_input.ee_id[self.skdata_input.ee_id != 0]
 
         # print(fake_pos[:,:,0:1,:].shape)
         fake_pos_loc = fake_pos - fake_pos[:,:,0:1,:]
         real_pos_loc = real_pos - real_pos[:,:,0:1,:]
 
-        # fake_ee = torch.cat((fake_vel[:,:,ee_false,:], fake_pos_loc[:,:,ee_false,:]), dim=2)
-        # real_ee = torch.cat((real_vel[:,:,ee_real,:], real_pos_loc[:,:,ee_real,:]), dim=2)
-        fake_ee = fake_pos_loc[:,:,ee_false,:]
-        real_ee = real_pos_loc[:,:,ee_real,:]
+        # fake_ee = fake_pos_loc[:,:,ee_false,:]
+        # real_ee = real_pos_loc[:,:,ee_real,:]
 
+        real_vel = utils.get_batch_velo2(real_pos, self.skdata_adv.frametime)
+        fake_vel = utils.get_batch_velo2(fake_pos, self.skdata_input.frametime)
 
-        real_length = self.skdata_adv.ee_length.reshape(1,1,self.skdata_adv.ee_length.shape[0],1)
-        fake_length = self.skdata_input.ee_length.reshape(1,1,self.skdata_input.ee_length.shape[0],1)
+        fake_ee = torch.cat((fake_vel[:,:,ee_false,:], fake_pos_loc[:,:,ee_false,:]), dim=2)
+        real_ee = torch.cat((real_vel[:,:,ee_real,:], real_pos_loc[:,:,ee_real,:]), dim=2)
+        
+        # fake_ee = torch.cat((fake_vel, fake_pos_loc), dim=2)
+        # real_ee = torch.cat((real_vel, real_pos_loc), dim=2)
+
+        real_length = self.skdata_input.ee_length.reshape(1,1,self.skdata_input.ee_length.shape[0],1)
+        fake_length = self.skdata_adv.ee_length.reshape(1,1,self.skdata_adv.ee_length.shape[0],1)
 
         # print(torch.repeat_interleave(real_length,2, dim=2))
         real_length = torch.repeat_interleave(real_length,2, dim=2)
@@ -349,7 +375,7 @@ class Sk_Trainer():
 
 
         # loss_ee_velo = criterion_ee(fake_joint_vel[:,:,ee_id,:], real_joint_vel[:,:,ee_id,:])
-        # loss_ee_velo = self.criterion_ee(fake_ee/fake_length, real_ee/real_length)
-        loss_ee_velo = self.criterion_ee(fake_ee, real_ee)
+        loss_ee_velo = self.criterion_ee(fake_ee/fake_length, real_ee/real_length)
+        # loss_ee_velo = self.criterion_ee(fake_ee, real_ee)
 
         return loss_ee_velo
